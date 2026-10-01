@@ -9,6 +9,7 @@
   const SUGG = new Set(L.suggestion);
   const PHRASES = new Set(L.phrases);
   const SHORT_OK = new Set(L.shortAllowed);
+  const BREAK = new Set(L.clauseBreakers);
   const LONG_KEYS = Object.keys(LEX).filter(k => k.length >= 6 && !k.includes(' ')).sort((a, b) => b.length - a.length);
   const NYA_KEEP = new Set(['tanya', 'bertanya', 'punya', 'hanya', 'dunia', 'karunia', 'penanya', 'sanya', 'bunya']);
 
@@ -117,6 +118,16 @@
         i++;
       } else merged.push(t);
     }
+    // Klausa: batas kalimat, koma/titik koma, atau kata pemisah (tapi, namun, kendala, ...)
+    let c = 0;
+    merged.forEach((t, i) => {
+      if (i) {
+        const p = merged[i - 1];
+        const why = t.s !== p.s ? 's' : BREAK.has(t.norm) ? 'w' : /[,;:()\n]|\.\.|\s-\s/.test(text.slice(p.end, t.start)) ? 'p' : '';
+        if (why) { c++; t.cb = why; }
+      }
+      t.c = c;
+    });
     return merged;
   }
 
@@ -163,7 +174,7 @@
       if (t.raw.length > 3 && t.raw === t.raw.toUpperCase() && text !== text.toUpperCase()) v *= 1.2;
       sum += v;
       sentSums.set(t.s, (sentSums.get(t.s) || 0) + v);
-      hits.push({ start: t.start, end: t.end, v: +v.toFixed(2), term: lx.key, negated });
+      hits.push({ start: t.start, end: t.end, v: +v.toFixed(2), term: lx.key, negated, c: t.c });
     }
     const low = text.toLowerCase();
     L.emoticons.positive.forEach(e => { if (low.includes(e)) sum += 1; });
@@ -176,23 +187,44 @@
   const THRESH = 0.15;
   const labelOf = c => (c >= THRESH ? 'positive' : c <= -THRESH ? 'negative' : 'neutral');
 
-  function detectAspects(toks, sentSums, extraKeys) {
-    const found = new Map(); // aspectId -> Set(sentence)
-    const add = (id, s) => { if (!found.has(id)) found.set(id, new Set()); found.get(id).add(s); };
+  /** Pecah teks menjadi klausa: [{ i, start, end, text, words, lex, aspects }]. */
+  function buildClauses(toks, hits, text) {
+    const by = new Map();
+    toks.forEach(t => { if (!by.has(t.c)) by.set(t.c, []); by.get(t.c).push(t); });
+    const out = [];
+    by.forEach((ts, i) => {
+      const sum = hits.filter(h => h.c === i).reduce((a, h) => a + h.v, 0);
+      const start = ts[0].start, end = ts[ts.length - 1].end;
+      out.push({ i, start, end, text: text.slice(start, end), words: ts.length, lex: +compound(sum).toFixed(3), aspects: [], cont: ts[0].cb === 'p' });
+    });
+    return out;
+  }
+
+  function detectAspects(toks, clauses, extraKeys) {
+    const found = new Map(); // klausa -> Set(aspectId)
+    const add = (id, c) => { if (!found.has(c)) found.set(c, new Set()); found.get(c).add(id); };
     toks.forEach(t => {
       const cands = [t.norm, displayTerm(t.norm), ...stemCandidates(t.norm).slice(1, 4)];
       for (const c of cands) {
         const ids = ASPECT_INDEX.get(c);
-        if (ids) { ids.forEach(id => add(id, t.s)); break; }
+        if (ids) { ids.forEach(id => add(id, t.c)); break; }
       }
-      if (extraKeys && extraKeys.has(t.norm)) add('instruktur', t.s);
+      if (extraKeys && extraKeys.has(t.norm)) add('instruktur', t.c);
     });
+    // Keluhan teknis ("suara pemateri putus") milik Teknis/Fasilitas, bukan Materi/Instruktur
+    found.forEach(ids => { if (ids.has('teknis')) { ids.delete('materi'); ids.delete('instruktur'); } });
+    // Klausa lanjutan setelah koma tanpa kata aspek ("Materi pas, mudah dipahami") mewarisi aspek klausa sebelumnya
+    clauses.forEach((cl, k) => {
+      if (k && cl.cont && !found.has(cl.i) && found.has(clauses[k - 1].i)) found.set(cl.i, new Set(found.get(clauses[k - 1].i)));
+    });
+    const per = new Map(); // aspectId -> [klausa]
+    found.forEach((ids, c) => ids.forEach(id => { if (!per.has(id)) per.set(id, []); per.get(id).push(c); }));
     const out = [];
-    found.forEach((sents, id) => {
-      let s = 0; sents.forEach(x => { s += sentSums.get(x) || 0; });
-      const first = Math.min(...sents);
-      const inSent = toks.filter(t => t.s === first);
-      out.push({ id, score: compound(s), span: [inSent[0].start, inSent[inSent.length - 1].end] });
+    per.forEach((cs, id) => {
+      const cl = cs.map(i => clauses.find(x => x.i === i)).filter(Boolean);
+      cl.forEach(x => x.aspects.push(id));
+      const s = cl.reduce((a, x) => a + x.lex, 0) / Math.max(cl.length, 1);
+      out.push({ id, score: +s.toFixed(3), clauses: cs, span: [cl[0].start, cl[0].end] });
     });
     return out;
   }
@@ -201,8 +233,9 @@
   function analyze(text, extraKeys) {
     const empty = isEmptyAnswer(text);
     const toks = tokenize(text || '');
-    const { sum, hits, sentSums } = scoreTokens(toks, text || '');
+    const { sum, hits } = scoreTokens(toks, text || '');
     const c = empty ? 0 : compound(sum);
+    const clauses = empty ? [] : buildClauses(toks, hits, text || '');
     const terms = toks
       .map(t => displayTerm(t.norm))
       .filter(w => !/^\d+$/.test(w) && (w.length >= 3 || SHORT_OK.has(w)));
@@ -215,7 +248,8 @@
       hits,
       tokens: toks,
       terms,
-      aspects: empty ? [] : detectAspects(toks, sentSums, extraKeys),
+      clauses,
+      aspects: empty ? [] : detectAspects(toks, clauses, extraKeys),
       suggestion,
       words: toks.length
     };
@@ -271,5 +305,5 @@
     return false;
   }
 
-  T.NLP = { analyze, ngrams, docHasTerm, tokenize, isEmptyAnswer, labelOf, THRESH, STOP, NEG, displayTerm };
+  T.NLP = { analyze, compound, ngrams, docHasTerm, tokenize, isEmptyAnswer, labelOf, THRESH, STOP, NEG, displayTerm };
 })(window.T);

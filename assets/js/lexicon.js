@@ -21,7 +21,7 @@ T.LEX = {
     sistematis: 1.5, terstruktur: 1.5, praktis: 1.5, relevan: 1.5, kekinian: 1.2,
     menguasai: 2, cakap: 1.5, mendukung: 1.5, kooperatif: 1.5, responsif: 1.5,
     efektif: 2, efisien: 1.5, produktif: 1.5, recommended: 2.5, suka: 2, cocok: 1.5,
-    sesuai: 1, tepat: 1, 'tepat waktu': 1.5, lancar: 1.5, maksimal: 1.5, optimal: 1.5,
+    sesuai: 1, pas: 1, tepat: 1, 'tepat waktu': 1.5, lancar: 1.5, maksimal: 1.5, optimal: 1.5,
     top: 2, juara: 2.5, istimewa: 2.5, sempurna: 3, positif: 1.5, bangga: 2,
     menambah: 0.8, wawasan: 1, ilmu: 0.8, semangat: 1.5, antusias: 1.5, memotivasi: 2,
     motivasi: 1, kondusif: 1.5, bersih: 1.2, enak: 1.8, kece: 2, jos: 2, gokil: 2,
@@ -47,8 +47,26 @@ T.LEX = {
     percuma: -2, rugi: -2, keluhan: -1.5, komplain: -1.5, mengeluh: -1.5, lag: -1.5,
     ngelag: -1.5, delay: -1.5, tertunda: -1.2, ditunda: -1, berantakan: -2, asal: -0.8
   },
+  // Kata yang memulai klausa baru (untuk deteksi Campuran & sentimen per aspek)
+  clauseBreakers: ['tapi', 'tetapi', 'namun', 'sayangnya', 'cuma', 'hanya saja', 'kendala', 'kendalanya',
+    'kekurangan', 'kekurangannya', 'sedangkan', 'padahal', 'meskipun', 'walaupun', 'walau', 'meski', 'sementara',
+    'but', 'however', 'although', 'though'],
+
+  // Isu berulang yang dikenali dengan pola (nama bawaan bisa diganti pengguna). Diuji pada klausa negatif.
+  issuePatterns: [
+    { id: 'ujian-belum-diajarkan', name: 'Materi ujian belum diajarkan', re: '(diuji|diujikan|ujian|soal|asesmen|assessment|sertifikasi|uji kompetensi)[^.]*\\b(belum|tidak|tdk|blm)\\s+(semua\\s+)?(diajarkan|dibahas|disampaikan|dijelaskan|diberikan)|(belum|tidak|tdk|blm)\\s+(diajarkan|dibahas|disampaikan|dijelaskan)[^.]*(diuji|diujikan|ujian|soal|asesmen)' },
+    { id: 'materi-tak-sesuai-uji', name: 'Materi tidak sesuai kompetensi yang diujikan', re: '(belum|tidak|tdk|kurang)\\s+sesuai[^.]*(kompetensi|diujikan|ujian|uji|skema)' },
+    { id: 'audio', name: 'Gangguan audio/suara', re: '\\b(suara|audio|mic|mik|mikrofon|sound|speaker|volume)\\b[^.]*\\b(putus|mati|macet|kecil|pelan|kresek|echo|gema|terputus|tidak terdengar|kurang terdengar|kurang jelas|tidak jelas|hilang|delay)|\\b(tidak|kurang)\\s+terdengar' },
+    { id: 'koneksi', name: 'Koneksi / platform bermasalah', re: '\\b(koneksi|internet|wifi|sinyal|jaringan|zoom|gmeet|meet|platform|server|link|streaming)\\b[^.]*\\b(putus|lemot|lambat|lelet|error|down|terputus|gangguan|bermasalah|lag|ngelag|susah|sulit|tidak stabil)' },
+    { id: 'waktu-kurang', name: 'Waktu pelatihan kurang', re: '\\b(waktu|durasi|jam|hari|sesi)\\b[^.]*\\b(kurang|singkat|terbatas|mepet|sedikit)|terlalu (cepat|singkat|padat)|terburu' },
+    { id: 'praktik-kurang', name: 'Porsi praktik kurang', re: '\\b(praktik|praktek|hands.on|latihan)\\b[^.]*\\b(kurang|sedikit|minim|terbatas)|(kurang|minim)\\s+(praktik|praktek|latihan)' },
+    { id: 'ruangan', name: 'Kenyamanan ruangan', re: '\\b(ruang|ruangan|ac|kelas|tempat)\\b[^.]*\\b(dingin|panas|gerah|sempit|berisik|bau|kotor)' },
+    { id: 'modul', name: 'Modul/materi belum dibagikan', re: '\\b(modul|materi|slide|file|rekaman)\\b[^.]*\\b(belum|tidak)\\s+(dibagikan|dikirim|diberikan|dishare|ada)' },
+    { id: 'konsumsi', name: 'Konsumsi kurang memuaskan', re: '\\b(konsumsi|makan|makanan|snack|coffee|kopi)\\b[^.]*\\b(kurang|tidak enak|telat|sedikit|dingin|habis)' }
+  ],
+
   // Frasa multi-kata digabung sebelum skoring
-  phrases: ['luar biasa', 'terima kasih', 'tepat waktu', 'the best', 'worth it'],
+  phrases: ['luar biasa', 'terima kasih', 'tepat waktu', 'the best', 'worth it', 'hanya saja'],
   negators: ['tidak', 'tak', 'bukan', 'belum', 'jangan', 'tanpa', 'no', 'not', 'never', 'nor', 'dont', 'isnt', 'wasnt'],
   intensifiers: {
     sangat: 1.5, amat: 1.4, sungguh: 1.4, benar: 1.2, paling: 1.5, super: 1.5,
@@ -116,21 +134,23 @@ T.LEX = {
     { id: 'layanan', label: 'Layanan & Staf', icon: 'hand-helping',
       keys: ['pelayanan', 'layanan', 'driver', 'admin', 'panitia', 'staf', 'staff', 'pendaftaran', 'registrasi',
         'kooperatif', 'ramah', 'sigap', 'sabar', 'penjemputan', 'jemput', 'cs', 'service', 'respons', 'responsif'] },
-    { id: 'fasilitas', label: 'Fasilitas', icon: 'building-2',
-      keys: ['fasilitas', 'ruang', 'ruangan', 'tempat', 'lokasi', 'gedung', 'ac', 'konsumsi', 'makan', 'makanan',
-        'snack', 'kopi', 'wifi', 'internet', 'proyektor', 'hotel', 'kamar', 'kursi', 'meja', 'parkir', 'toilet'] },
     { id: 'waktu', label: 'Waktu & Jadwal', icon: 'clock',
       keys: ['waktu', 'jadwal', 'durasi', 'jam', 'tepat waktu', 'telat', 'terlambat', 'molor', 'singkat', 'padat',
         'lama', 'cepat', 'terburu', 'delay', 'tertunda'] },
     { id: 'manfaat', label: 'Manfaat Kerja', icon: 'briefcase',
-      keys: ['pekerjaan', 'kerja', 'tugas', 'produktivitas', 'produktif', 'kompetensi', 'diaplikasikan', 'aplikasikan',
+      keys: ['pekerjaan', 'kerja', 'tugas', 'produktivitas', 'produktif', 'diaplikasikan', 'aplikasikan',
         'diterapkan', 'terapkan', 'menerapkan', 'bermanfaat', 'manfaat', 'berguna', 'membantu', 'relevan', 'skill',
         'keterampilan', 'karir', 'karier', 'kantor', 'bisnis'] },
     { id: 'suasana', label: 'Suasana Belajar', icon: 'sparkles',
       keys: ['suasana', 'seru', 'santai', 'relaxing', 'menyenangkan', 'menarik', 'asyik', 'fun', 'serius', 'kondusif',
         'nyaman', 'membosankan', 'bosan', 'monoton', 'ngantuk', 'berkesan', 'rileks', 'relaks'] },
-    { id: 'teknis', label: 'Tools & Teknis', icon: 'cpu',
-      keys: ['token', 'berlangganan', 'langganan', 'akun', 'lisensi', 'software', 'aplikasi', 'website', 'web', 'tools',
-        'tool', 'laptop', 'genai', 'chatgpt', 'gemini', 'claude', 'copilot', 'error', 'login', 'koneksi', 'sinyal'] }
+    { id: 'teknis', label: 'Teknis/Fasilitas', icon: 'plug',
+      keys: ['fasilitas', 'ruang', 'ruangan', 'tempat', 'lokasi', 'gedung', 'ac', 'konsumsi', 'makan', 'makanan',
+        'snack', 'kopi', 'hotel', 'kamar', 'kursi', 'meja', 'parkir', 'toilet', 'proyektor', 'layar', 'lampu',
+        'suara', 'audio', 'mic', 'mik', 'mikrofon', 'microphone', 'speaker', 'sound', 'headset', 'volume', 'echo',
+        'koneksi', 'internet', 'wifi', 'sinyal', 'jaringan', 'zoom', 'gmeet', 'meet', 'teams', 'platform', 'lms',
+        'link', 'server', 'video', 'kamera', 'streaming', 'token', 'berlangganan', 'langganan', 'akun', 'lisensi',
+        'software', 'aplikasi', 'website', 'web', 'tools', 'tool', 'laptop', 'komputer', 'pc', 'error', 'login',
+        'genai', 'chatgpt', 'gemini', 'claude', 'copilot'] }
   ]
 };

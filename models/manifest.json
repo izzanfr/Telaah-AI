@@ -14,6 +14,7 @@
   "labels": {
     "positive": "positive",
     "neutral": "neutral",
+    "mixed": "mixed",
     "negative": "negative"
   },
   "pipeline": {
@@ -27,14 +28,26 @@
     "capsNormalize": true,
     "ttaTemplate": "Menurut saya pelatihannya {}",
     "ttaMaxWords": 5,
-    "ttaLowercase": true
+    "ttaLowercase": true,
+    "mixedMin": 0.2,
+    "mixedMinModel": 0.8
   },
   "evaluatedOn": "2026-10-01",
   "benchmarks": [
     {
+      "dataset": "Komentar campuran (uji)",
+      "n": 25,
+      "note": "Set uji 4 kelas baru: 15 campuran + 10 pembanding (positif konsesif, negatif berlapis, netral). Ambang Campuran dipilih HANYA dari set dev terpisah (25) + feedback 90 + SmSA validation. Tanpa label Campuran: 36%.",
+      "lexicon": null,
+      "model": null,
+      "hybrid": {
+        "acc": 76.0
+      }
+    },
+    {
       "dataset": "SmSA test (IndoNLU)",
       "n": 500,
-      "note": "Held-out resmi, label manusia. Parameter pipeline dipilih dari SmSA validation (1.260), bukan dari set ini.",
+      "note": "Held-out resmi, label manusia. Parameter pipeline dipilih dari SmSA validation (1.260), bukan dari set ini. Sejak label Campuran (2026-10-01): 89,4%, karena 5% ulasan SmSA kini diberi label Campuran sementara label SmSA hanya 3 kelas (dihitung salah).",
       "lexicon": {
         "acc": 75.4,
         "f1": 72.1
@@ -56,7 +69,7 @@
     {
       "dataset": "Feedback pendek & informal (uji v2)",
       "n": 137,
-      "note": "Set uji baru (2026-10-01): komentar pendek, slang, bahasa Inggris, saran. Label ditetapkan sebelum evaluasi. Batas TTA 3 dan 5 kata seri di set dev; dipilih 5 kata karena mencakup contoh nyata 4 kata yang dilaporkan pengguna (batas 3 kata: 89,8%). Versi tanpa TTA: 87,6%. v6 (2026-10-01): komentar ditulis huruf kecil di dalam kalimat konteks (data latih model seluruhnya huruf kecil; 'SERU' sebelumnya terbaca negatif), bobot leksikon komentar <=3 kata 2,0 (di subset ini leksikon 94% benar vs model 78% di set dev). Akurasi set uji tidak berubah.",
+      "note": "Set uji baru (2026-10-01): komentar pendek, slang, bahasa Inggris, saran. Label ditetapkan sebelum evaluasi. Batas TTA 3 dan 5 kata seri di set dev; dipilih 5 kata karena mencakup contoh nyata 4 kata yang dilaporkan pengguna (batas 3 kata: 89,8%). Versi tanpa TTA: 87,6%. v6 (2026-10-01): komentar ditulis huruf kecil di dalam kalimat konteks (data latih model seluruhnya huruf kecil; 'SERU' sebelumnya terbaca negatif), bobot leksikon komentar <=3 kata 2,0 (di subset ini leksikon 94% benar vs model 78% di set dev). Akurasi set uji tidak berubah. 4 kelas (2026-10-01, 4 komentar dilabel ulang Campuran): 91,2% (tanpa Campuran 89,8%).",
       "lexicon": {
         "acc": 85.4
       },
@@ -142,6 +155,7 @@
     }
   ],
   "limitations": [
+    "Label Campuran butuh klausa yang jelas memuji dan klausa yang jelas mengkritik. Pujian atau kritik yang samar tanpa kata kontras bisa terbaca sebagai satu nada saja; komentar Campuran selalu ditandai Perlu ditinjau.",
     "Komentar 1-5 kata (\"ok\", \"sudah baik\") di luar pola data latih model. Komentar seperti ini juga dinilai di dalam kalimat konteks \"Menurut saya pelatihannya ...\" lalu hasilnya dirata-rata (test-time augmentation).",
     "Model dilatih pada ulasan umum, bukan khusus feedback pelatihan. Sekitar 1 dari 8 komentar feedback masih bisa salah label.",
     "Sarkasme dan kalimat campuran (pujian + keluhan) adalah sumber kesalahan terbesar; komentar seperti ini cenderung ditandai 'Perlu ditinjau'.",

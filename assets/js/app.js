@@ -5,8 +5,8 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const STORE_KEY = 'telaah.v1';
-  const SENTS = ['positive', 'neutral', 'negative'];
-  const SENT_LABEL = { positive: 'Positif', neutral: 'Netral', negative: 'Negatif', empty: 'Kosong' };
+  const SENTS = ['positive', 'neutral', 'mixed', 'negative'];
+  const SENT_LABEL = { positive: 'Positif', neutral: 'Netral', mixed: 'Campuran', negative: 'Negatif', empty: 'Kosong' };
   const Q_LABEL = { pengalaman: 'Pengalaman', saran: 'Saran', other: 'Lainnya' };
   const ASPECTS = LEX.aspects;
   const aspectById = Object.fromEntries(ASPECTS.map(a => [a.id, a]));
@@ -22,10 +22,13 @@
     explorer: { sort: 'order', showEmpty: false, review: false, limit: 30 },
     charts: {},
     tableQueue: [],
+    issueDocs: new Map(),
     useModel: true,      // pakai model AI bila tersedia
     modelCfg: null,      // parameter pipeline dari models/manifest.json
     modelRun: null,      // { done, total } saat inferensi berjalan
-    modelLoad: null      // progres unduh model (0–100)
+    modelLoad: null,     // progres unduh model (0–100)
+    reviewThreshold: null, // ambang tinjau (%) dari pengguna; null = bawaan manifest
+    issueNames: {}
   };
   const ORDER = ['positive', 'neutral', 'negative'];
 
@@ -41,10 +44,15 @@
   const icons = () => { if (window.lucide) lucide.createIcons({ attrs: { 'aria-hidden': 'true' } }); };
   const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
   const hasAI = d => S.useModel && !!d.m;
-  const autoLabel = d => (hasAI(d) ? d.m.label : d.a.label);
-  const autoScore = d => (hasAI(d) ? d.m.score : d.a.score);
+  /** Hasil klasifikasi aktif: mesin AI bila tersedia, selain itu mesin leksikon. */
+  const res = d => (hasAI(d) ? d.m : d.lx);
+  const autoLabel = d => (d.a.empty ? 'empty' : res(d)?.sentimen || d.a.label);
+  const autoScore = d => res(d)?.skor ?? d.a.score;
   const labelOf = d => S.overrides[d.key] || autoLabel(d);
-  const sentColor = l => cssVar(l === 'positive' ? '--pos' : l === 'negative' ? '--neg' : '--neu');
+  const needsReview = d => !d.a.empty && !!res(d)?.tinjau && !S.overrides[d.key];
+  const SENT_VAR = { positive: '--pos', negative: '--neg', mixed: '--mix', neutral: '--neu' };
+  const sentColor = l => cssVar(SENT_VAR[l] || '--neu');
+  const sentKey = l => ({ positive: 'pos', negative: 'neg', mixed: 'mix', neutral: 'neu' }[l] || 'neu');
   const tiltLabel = v => (v >= NLP.THRESH ? 'positive' : v <= -NLP.THRESH ? 'negative' : 'neutral');
 
   function toast(msg, type = 'ok') {
@@ -60,6 +68,8 @@
      Persistensi
      ==================================================================== */
   const OVR_KEY = 'telaah.overrides';
+  const RT_KEY = 'telaah.reviewThreshold';   // ambang tinjau (%) yang diatur pengguna
+  const ISSUE_KEY = 'telaah.issueNames';     // nama isu berulang yang diedit pengguna
   const UI_KEY = 'telaah.ui';
   // Koreksi label disimpan terpisah dari data kelas: bila data besar membuat penyimpanan
   // penuh, koreksi manual tetap aman.
@@ -81,6 +91,8 @@
     } catch (e) { /* abaikan */ }
     try { const o = JSON.parse(localStorage.getItem(OVR_KEY) || 'null'); if (o) S.overrides = o; } catch (e) { /* abaikan */ }
     try { S.useModel = localStorage.getItem('telaah.useModel') !== '0'; } catch (e) { /* abaikan */ }
+    try { const v = parseFloat(localStorage.getItem(RT_KEY)); if (v >= 40 && v <= 95) S.reviewThreshold = v; } catch (e) { /* abaikan */ }
+    try { S.issueNames = JSON.parse(localStorage.getItem(ISSUE_KEY) || '{}') || {}; } catch (e) { S.issueNames = {}; }
     loadUI();
   }
 
@@ -89,7 +101,7 @@
     const f = S.filters;
     const ui = {
       tab: S.tab,
-      filters: { classes: [...f.classes], question: f.question, sentiments: [...f.sentiments], aspect: f.aspect, q: f.q, term: f.term },
+      filters: { classes: [...f.classes], question: f.question, sentiments: [...f.sentiments], aspect: f.aspect, q: f.q, term: f.term, issue: f.issue || null },
       cloud: S.cloud,
       explorer: { sort: S.explorer.sort, showEmpty: S.explorer.showEmpty, review: S.explorer.review },
       lbSort: S.lbSort || 'ovr',
@@ -105,7 +117,10 @@
     const f = ui.filters || {};
     if (Array.isArray(f.classes)) S.filters.classes = new Set(f.classes);
     if (['all', 'pengalaman', 'saran'].includes(f.question)) S.filters.question = f.question;
-    if (Array.isArray(f.sentiments) && f.sentiments.length) S.filters.sentiments = new Set(f.sentiments.filter(x => SENTS.includes(x)));
+    if (Array.isArray(f.sentiments) && f.sentiments.length) {
+      S.filters.sentiments = new Set(f.sentiments.filter(x => SENTS.includes(x)));
+      if (!f.sentiments.includes('mixed') && ['positive', 'neutral', 'negative'].every(x => f.sentiments.includes(x))) S.filters.sentiments.add('mixed');
+    }
     if (!S.filters.sentiments.size) S.filters.sentiments = new Set(SENTS);
     if (typeof f.aspect === 'string' && (f.aspect === 'all' || aspectById[f.aspect])) S.filters.aspect = f.aspect;
     if (typeof f.q === 'string') S.filters.q = f.q;
@@ -122,6 +137,7 @@
     }
     if (typeof ui.lbSort === 'string') S.lbSort = ui.lbSort;
     if (Array.isArray(ui.h2h)) S.h2h = ui.h2h;
+    if (typeof f.issue === 'string') S.filters.issue = f.issue;
   }
 
   /* ====================================================================
@@ -144,7 +160,7 @@
     }));
     // Hilangkan pilihan kelas yang sudah tidak ada
     S.filters.classes.forEach(id => { if (!S.datasets.some(d => d.id === id)) S.filters.classes.delete(id); });
-    if (S.modelCfg) S.docs.forEach(d => applyModel(d));
+    reclassifyAll();
     if (S.docs.length) runModel();
   }
 
@@ -163,71 +179,29 @@
     } catch (e) { /* penuh; cache hanya di memori */ }
   }, 800);
 
-  const countWords = t => (t.trim() ? t.trim().split(/\s+/).length : 0);
-  const lexProbs = c => (c === 0 ? [1 / 3, 1 / 3, 1 / 3] : [Math.max(c, 0), 1 - Math.abs(c), Math.max(-c, 0)]);
-  const argmax = a => a.reduce((b, v, i) => (v > a[b] ? i : b), 0);
+  const countWords = T.Classifier.countWords;
 
-  function contrastTail(text, cfg) {
-    const re = new RegExp(cfg.contrastPattern, 'gi');
-    let m, last = null;
-    while ((m = re.exec(text))) last = m;
-    if (!last) return null;
-    const tail = text.slice(last.index + last[0].length).replace(/^[ ,.;]+|[ ,.;]+$/g, '');
-    return countWords(tail) >= 2 ? tail : null;
+  /* Klasifikasi lewat antarmuka yang bisa ditukar (lihat assets/js/classifier.js):
+     engine.needs(text, analysis) & engine.classify(text, { question, analysis }). */
+  const DEFAULT_CFG = { mixedMin: 0.3, mixedMinModel: 0.6, reviewConfidence: 0.7, reviewLexConflict: 0.5 };
+  function pipelineCfg() {
+    const cfg = { ...DEFAULT_CFG, ...(S.modelCfg || {}) };
+    if (S.reviewThreshold != null) cfg.reviewConfidence = S.reviewThreshold / 100;
+    return cfg;
   }
-
-  /** Test-time augmentation: komentar pendek juga dinilai di dalam kalimat konteks, lalu dirata-rata. */
-  const ttaText = (t, cfg) => (cfg.ttaTemplate && countWords(t) <= cfg.ttaMaxWords ? cfg.ttaTemplate.replace('{}', t.toLowerCase()) : null);
-  const textsFor = (t, cfg) => [t, ttaText(t, cfg)].filter(Boolean);
-  function modelProbs(t, cfg) {
-    const p = mcache.get(t); if (!p) return null;
-    const ta = ttaText(t, cfg); if (!ta) return p;
-    const q = mcache.get(ta); if (!q) return null;
-    return p.map((v, i) => (v + q[i]) / 2);
+  let engineAI = null, engineLex = null;
+  function buildEngines() {
+    const cfg = pipelineCfg();
+    engineLex = T.Classifier.lexicon(cfg);
+    engineAI = S.modelCfg ? T.Classifier.hybrid(cfg, t => mcache.get(t) || null) : null;
   }
-
-  /** Gabungkan probabilitas model (+ klausa kontras) dengan leksikon. Mengembalikan [pos, neu, neg]. */
-  function combine(pFull, pTail, lexScore, words, cfg) {
-    let P = pFull.slice();
-    if (pTail) P = P.map((v, i) => (1 - cfg.contrastWeight) * v + cfg.contrastWeight * pTail[i]);
-    const L = lexProbs(lexScore);
-    const lw = words <= cfg.shortMaxWords && lexScore !== 0 ? cfg.shortLexWeight : cfg.lexWeight;
-    return P.map((v, i) => (v + lw * L[i]) / (1 + lw));
+  function classifyDoc(d) {
+    if (d.a.empty) { d.m = null; d.lx = null; return; }
+    const ctx = { question: d.question, analysis: d.a };
+    d.lx = engineLex.classify(d.text, ctx);
+    d.m = engineAI ? engineAI.classify(d.text, ctx) : null;
   }
-
-  function planDoc(d, cfg) {
-    const tail = contrastTail(d.text, cfg);
-    const sents = d.a.aspects.map(a => (a.span ? d.text.slice(a.span[0], a.span[1]) : null));
-    return { tail, sents };
-  }
-
-  function applyModel(d) {
-    const cfg = S.modelCfg;
-    if (!cfg || d.a.empty) { d.m = null; return; }
-    const pF = modelProbs(d.text, cfg);
-    if (!pF) { d.m = null; return; }
-    const { tail, sents } = planDoc(d, cfg);
-    const pT = tail ? modelProbs(tail, cfg) : null;
-    if (tail && !pT) { d.m = null; return; }
-    const F = combine(pF, pT, d.a.score, countWords(d.text), cfg);
-    const i = argmax(F), conf = F[i];
-    // Jawaban pertanyaan "saran" tanpa kata bersentimen dan model ragu: itu usulan, bukan keluhan.
-    const sugNeutral = d.question === 'saran' && d.a.score === 0 && conf < cfg.reviewConfidence;
-    const label = sugNeutral ? 'neutral' : ORDER[i];
-    const lexLabel = NLP.labelOf(d.a.score);
-    const conflict = lexLabel !== label && Math.abs(d.a.score) >= cfg.reviewLexConflict;
-    const aspects = {};
-    d.a.aspects.forEach((a, k) => {
-      const st = sents[k], pa = st && modelProbs(st, cfg);
-      if (pa) { const Fa = combine(pa, null, a.score, countWords(st), cfg); aspects[a.id] = Fa[0] - Fa[2]; }
-    });
-    d.m = {
-      label, confidence: conf, probs: F, score: F[0] - F[2],
-      review: conf < cfg.reviewConfidence || conflict,
-      reason: sugNeutral ? 'saran tanpa nada jelas, dianggap netral' : conf < cfg.reviewConfidence ? 'keyakinan rendah' : conflict ? 'model & leksikon tidak sepakat' : '',
-      modelLabel: ORDER[argmax(pF)], contrast: !!pT, tta: !!ttaText(d.text, cfg), aspects
-    };
-  }
+  function reclassifyAll() { buildEngines(); S.docs.forEach(classifyDoc); }
 
   let modelToken = 0;
   async function runModel() {
@@ -243,12 +217,9 @@
       if (st.status !== 'ready') { renderModelChip(); if (token === modelToken) renderAll(); return; }
     }
     S.modelCfg = TM.state.manifest.pipeline;
+    buildEngines();
     const need = new Set();
-    S.docs.forEach(d => {
-      if (d.a.empty) return;
-      const { tail, sents } = planDoc(d, S.modelCfg);
-      [d.text, tail, ...sents].filter(Boolean).flatMap(t => textsFor(t, S.modelCfg)).forEach(t => { if (!mcache.has(t)) need.add(t); });
-    });
+    S.docs.forEach(d => engineAI.needs(d.text, d.a).forEach(t => { if (!mcache.has(t)) need.add(t); }));
     if (need.size) {
       const arr = [...need];
       S.modelRun = { done: 0, total: arr.length }; renderModelChip();
@@ -264,7 +235,7 @@
     }
     S.modelLoad = null;
     if (token !== modelToken) { renderModelChip(); return; }
-    S.docs.forEach(d => applyModel(d));
+    reclassifyAll();
     renderAll();
     renderModelChip();
   }
@@ -301,14 +272,24 @@
         <div><b>${fmt(ms.review)}</b><span>perlu ditinjau</span></div>
       </div>` : ''}
 
+      <div class="mthresh">
+        <label for="rtInput"><b>Ambang “Perlu ditinjau”</b><small>Komentar dengan keyakinan AI di bawah nilai ini, atau berlabel Campuran, ditandai untuk ditinjau manual.</small></label>
+        <div class="mthresh__ctl">
+          <input type="range" id="rtInput" min="40" max="95" step="5" value="${Math.round(pipelineCfg().reviewConfidence * 100)}">
+          <output id="rtOut" for="rtInput">${Math.round(pipelineCfg().reviewConfidence * 100)}%</output>
+          ${S.reviewThreshold != null ? `<button type="button" class="btn btn--ghost btn--sm" id="rtReset">Bawaan (${Math.round((S.modelCfg?.reviewConfidence ?? 0.7) * 100)}%)</button>` : ''}
+        </div>
+      </div>
+
       <h3 class="msec">Cara kerja</h3>
       <ol class="msteps">
         <li><b>IndoRoBERTa</b> (${esc(M?.params || '124 juta parameter')}, dilatih pada ${esc(M?.trainedOn || 'SmSA')}) membaca seluruh komentar dan memberi probabilitas positif / netral / negatif.</li>
         <li>Bila ada kata kontras (<i>tapi, namun, sayangnya, cuma…</i>), klausa setelahnya dinilai ulang dan diberi bobot ${M ? Math.round(M.pipeline.contrastWeight * 100) : 40}%.</li>
         <li>Komentar sangat pendek (≤${M?.pipeline.ttaMaxWords || 3} kata, mis. “ok”, “sudah baik”) juga dibaca di dalam kalimat konteks <i>“Menurut saya pelatihannya …”</i>, lalu hasil keduanya dirata-rata (<i>test-time augmentation</i>), karena model dilatih pada ulasan panjang.</li>
+        <li>Komentar dipecah per <b>klausa</b> (koma, titik, <i>tapi, namun, kendala…</i>). Bila ada klausa yang jelas memuji dan klausa yang jelas mengkritik, labelnya <b>Campuran</b>. Sentimen tiap aspek dihitung dari klausa tempat aspek itu disebut; keluhan teknis (audio, koneksi, ruangan) masuk <b>Teknis/Fasilitas</b>, tidak menurunkan Materi atau Instruktur.</li>
         <li>Jawaban pertanyaan <i>saran</i> yang tidak memuat kata bersentimen dan membuat model ragu dianggap <b>netral</b>: isinya usulan, bukan keluhan.</li>
         <li><b>Leksikon</b> Bahasa Indonesia ikut memberi suara (bobot ${M ? M.pipeline.lexWeight : 0.25}), lebih besar untuk komentar ≤${M ? M.pipeline.shortMaxWords : 3} kata seperti “ok”, “mantap”.</li>
-        <li>Komentar dengan keyakinan &lt; ${M ? Math.round(M.pipeline.reviewConfidence * 100) : 70}% atau yang sinyal model & leksikonnya bertentangan ditandai <b>Perlu ditinjau</b>.</li>
+        <li>Komentar dengan keyakinan &lt; ${Math.round(pipelineCfg().reviewConfidence * 100)}%, berlabel Campuran, atau yang sinyal model & leksikonnya bertentangan ditandai <b>Perlu ditinjau</b>.</li>
         <li>Semua berjalan di browser Anda. Teks tidak dikirim ke mana pun.</li>
       </ol>
 
@@ -338,8 +319,8 @@
 
   function modelStats(docs) {
     const ai = docs.filter(d => hasAI(d));
-    const review = ai.filter(d => d.m.review && !S.overrides[d.key]).length;
-    const agree = ai.filter(d => d.m.label === d.a.label).length;
+    const review = docs.filter(needsReview).length;
+    const agree = ai.filter(d => d.m.sentimen === d.lx?.sentimen).length;
     return { total: docs.length, ai: ai.length, review, agree };
   }
 
@@ -386,18 +367,19 @@
       if (!skip.has('q') && q && !d.text.toLowerCase().includes(q)) return false;
       if (!skip.has('term') && f.term && !NLP.docHasTerm(d, f.term)) return false;
       if (!skip.has('sent') && !d.a.empty && !f.sentiments.has(labelOf(d))) return false;
+      if (!skip.has('issue') && f.issue && !(S.issueDocs.get(f.issue) || new Set()).has(d.id)) return false;
       return true;
     });
   }
 
   function countLabels(docs) {
-    const c = { positive: 0, neutral: 0, negative: 0 };
+    const c = { positive: 0, neutral: 0, mixed: 0, negative: 0 };
     docs.forEach(d => { const l = labelOf(d); if (c[l] !== undefined) c[l]++; });
     return c;
   }
   const avgScore = docs => (docs.length ? docs.reduce((s, d) => s + effScore(d), 0) / docs.length : 0);
-  /** Net Sentiment Score: % positif dikurangi % negatif (netral tidak dihitung). Rentang −100…+100. */
-  const nssOf = c => { const n = c.positive + c.neutral + c.negative; return n ? pct(c.positive, n) - pct(c.negative, n) : 0; };
+  /** Net Sentiment Score: % positif dikurangi % negatif. Netral & campuran ikut penyebut, tidak menambah/mengurangi. */
+  const nssOf = c => { const n = c.positive + c.neutral + (c.mixed || 0) + c.negative; return n ? pct(c.positive, n) - pct(c.negative, n) : 0; };
   const nssDocs = docs => nssOf(countLabels(docs));
   const nssBand = v => (v >= 60 ? 'Sangat positif' : v >= 20 ? 'Positif' : v > -20 ? 'Campuran' : v > -60 ? 'Negatif' : 'Sangat negatif');
   // Skor mengikuti koreksi manual agar indeks konsisten dengan label
@@ -414,7 +396,7 @@
       docs.forEach(d => {
         const hit = d.a.aspects.find(x => x.id === asp.id);
         if (!hit) return;
-        const ms = hasAI(d) && d.m.aspects ? d.m.aspects[asp.id] : undefined;
+        const ms = res(d)?.aspekSkor?.[asp.id];
         rows.push({ d, s: ms !== undefined ? ms : hit.score, span: hit.span });
       });
       const c = { positive: 0, neutral: 0, negative: 0 };
@@ -458,6 +440,8 @@
     $$('.panel').forEach(p => { p.hidden = !has || p.dataset.panel !== S.tab; });
     renderMeta();
     if (!has) { icons(); return; }
+    computeIssues();
+    if (S.filters.issue && !S.issueDocs.has(S.filters.issue)) S.filters.issue = null; // isu lama tidak ada lagi
     renderFilters();
     renderTab();
     icons();
@@ -503,10 +487,11 @@
 
     // Chip aktif
     const chips = [];
+    if (f.issue) chips.push(`<button class="achip" data-clear="issue" aria-label="Hapus filter isu"><small>isu</small>${esc(truncate(issueName(f.issue), 40))}<i data-lucide="x"></i></button>`);
     if (f.term) chips.push(`<button class="achip" data-clear="term" aria-label="Hapus filter kata ${esc(f.term)}"><small>kata</small>${esc(f.term)}<i data-lucide="x"></i></button>`);
     $('#activeChips').innerHTML = chips.join('');
 
-    const active = f.classes.size || f.question !== 'all' || f.sentiments.size < 3 || f.aspect !== 'all' || f.q || f.term;
+    const active = f.classes.size || f.question !== 'all' || f.sentiments.size < SENTS.length || f.aspect !== 'all' || f.q || f.term || f.issue;
     $('#resetBtn').hidden = !active;
     if ($('#searchInput').value !== f.q) $('#searchInput').value = f.q;
 
@@ -565,6 +550,105 @@
   }
 
   /* ====================================================================
+     Isu berulang: pola isu yang dikenal + pengelompokan kemiripan teks (TF-IDF, cosine)
+     ==================================================================== */
+  const ISSUE_PATTERNS = (LEX.issuePatterns || []).map(p => ({ ...p, rx: new RegExp(p.re, 'i') }));
+  S.issueDefault = new Map();
+  const issueName = key => S.issueNames[key] || S.issueDefault.get(key) || 'Isu';
+
+  /** Bagian keluhan dari sebuah komentar: seluruh teks bila negatif, klausa negatif bila campuran. */
+  function complaintTexts(d) {
+    const l = labelOf(d);
+    if (l === 'neutral') return [{ t: d.text, patternOnly: true }]; // netral: hanya bila cocok pola keluhan
+    if (l !== 'negative' && l !== 'mixed') return [];
+    const neg = (res(d)?.klausa || []).filter(c => c.polar === 'negative').map(c => c.text);
+    return (l === 'mixed' && neg.length ? neg : [d.text]).map(t => ({ t }));
+  }
+
+  function computeIssues() {
+    const items = [];
+    S.docs.forEach(d => { if (!d.a.empty) complaintTexts(d).forEach(x => items.push({ d, ...x })); });
+    const groups = new Map(); // kunci isu -> Set(dokumen)
+    const add = (key, name, d) => { if (!groups.has(key)) groups.set(key, new Set()); groups.get(key).add(d); S.issueDefault.set(key, name); };
+    const rest = [];
+    items.forEach(it => {
+      const hit = ISSUE_PATTERNS.filter(p => p.rx.test(it.t));
+      hit.forEach(p => add('p:' + p.id, p.name, it.d));
+      if (!hit.length && !it.patternOnly) rest.push(it);
+    });
+    // Sisanya: kelompokkan keluhan yang memakai kata isi serupa
+    const toks = t => [...new Set(NLP.tokenize(t).map(x => NLP.displayTerm(x.norm))
+      .filter(w => w.length >= 3 && !NLP.STOP.has(w) && !S.stop.has(w) && !NLP.NEG.has(w)))];
+    const docsT = rest.map(it => ({ ...it, w: toks(it.t) })).filter(x => x.w.length);
+    const df = new Map(); docsT.forEach(x => x.w.forEach(w => df.set(w, (df.get(w) || 0) + 1)));
+    const N = docsT.length;
+    const vec = x => { const v = new Map(); x.w.forEach(w => v.set(w, Math.log(1 + N / df.get(w)))); return v; };
+    const cos = (a, b) => { let dot = 0, na = 0, nb = 0; a.forEach((v, k) => { na += v * v; if (b.has(k)) dot += v * b.get(k); }); b.forEach(v => { nb += v * v; }); return dot / (Math.sqrt(na * nb) || 1); };
+    const clusters = [];
+    docsT.forEach(x => {
+      const v = vec(x);
+      let best = null, bs = 0;
+      clusters.forEach(c => { const sc = cos(v, c.v); if (sc > bs) { bs = sc; best = c; } });
+      if (best && bs >= 0.4) { best.items.push(x); x.w.forEach(w => best.v.set(w, (best.v.get(w) || 0) + v.get(w))); }
+      else clusters.push({ v: new Map(v), items: [x] });
+    });
+    clusters.filter(c => new Set(c.items.map(x => x.d.id)).size >= 2).forEach(c => {
+      const cnt = new Map(); c.items.forEach(x => x.w.forEach(w => cnt.set(w, (cnt.get(w) || 0) + 1)));
+      const top = [...cnt.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([w]) => w);
+      if (!top.length) return;
+      const key = 'k:' + top.slice().sort().join('+');
+      const name = top[0][0].toUpperCase() + top[0].slice(1) + (top.length > 1 ? ': ' + top.slice(1).join(', ') : '');
+      c.items.forEach(x => add(key, name, x.d));
+    });
+    S.issueDocs = new Map([...groups.entries()].map(([k, set]) => [k, new Set([...set].map(d => d.id))]));
+    S.issueList = [...groups.entries()].map(([key, set]) => ({ key, docs: [...set] })).filter(x => x.docs.length >= 2);
+  }
+
+  function renderIssues() {
+    const base = new Set(filtered({ skip: ['sent', 'issue'] }).map(d => d.id));
+    const list = (S.issueList || []).map(x => {
+      const docs = x.docs.filter(d => base.has(d.id));
+      const classes = [...new Set(docs.map(d => d.datasetId))].map(id => S.datasets.find(ds => ds.id === id)).filter(Boolean);
+      return { ...x, docs, classes };
+    }).filter(x => x.docs.length >= 2).sort((a, b) => b.docs.length - a.docs.length || b.classes.length - a.classes.length);
+    $('#issueCount').textContent = list.length || '';
+    $('#issues').innerHTML = list.length ? list.map((x, i) => `
+      <li class="issue" data-issue="${esc(x.key)}">
+        <span class="issue__rank">${i + 1}</span>
+        <div class="issue__main">
+          <div class="issue__title">
+            <b class="issue__name">${esc(issueName(x.key))}</b>
+            <button class="issue__edit" data-edit-issue="${esc(x.key)}" aria-label="Ubah nama isu" title="Ubah nama isu"><i data-lucide="pencil"></i></button>
+            ${S.issueNames[x.key] ? '<span class="issue__custom" title="Nama diubah manual">manual</span>' : ''}
+          </div>
+          <div class="issue__classes">${x.classes.length > 1 ? `<span class="issue__cross"><i data-lucide="git-merge"></i>lintas ${x.classes.length} kelas</span>` : ''}${x.classes.map(ds => `<span class="tagc" title="${esc(ds.name)}">${esc(truncate(ds.name, 34))}</span>`).join('')}</div>
+        </div>
+        <button class="issue__count" data-open-issue="${esc(x.key)}" aria-label="Lihat ${x.docs.length} komentar"><b>${x.docs.length}</b><span>komentar</span><i data-lucide="arrow-right"></i></button>
+      </li>`).join('') : '<li class="none">Belum ada keluhan yang muncul lebih dari sekali pada filter ini.</li>';
+  }
+
+  function editIssueName(key) {
+    const li = $(`.issue[data-issue="${CSS.escape(key)}"]`); if (!li) return;
+    const nameEl = li.querySelector('.issue__name');
+    const input = document.createElement('input');
+    input.className = 'issue__input'; input.value = issueName(key); input.maxLength = 80;
+    input.setAttribute('aria-label', 'Nama isu');
+    nameEl.replaceWith(input); input.focus(); input.select();
+    let done = false;
+    const commit = save => {
+      if (done) return; done = true;
+      const v = input.value.trim();
+      if (save) {
+        if (!v || v === S.issueDefault.get(key)) delete S.issueNames[key]; else S.issueNames[key] = v;
+        try { localStorage.setItem(ISSUE_KEY, JSON.stringify(S.issueNames)); } catch (e) { /* abaikan */ }
+      }
+      renderIssues(); renderFilters(); icons();
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') commit(true); else if (e.key === 'Escape') commit(false); });
+    input.addEventListener('blur', () => commit(true));
+  }
+
+  /* ====================================================================
      Tab: Ringkasan
      ==================================================================== */
   function renderOverview() {
@@ -618,6 +702,7 @@
     renderComposition(base, c);
     renderInsights(base, c, aspects, dss);
     renderAttention(docs);
+    renderIssues();
     renderClassBars();
     renderScatter(docs);
     renderQuotes(docs);
@@ -627,7 +712,7 @@
     const out = [];
     const total = base.length;
     if (!total) { $('#insights').innerHTML = '<li>Tidak ada komentar pada filter ini.</li>'; return; }
-    out.push(`<b>${fmt(pct(c.positive, total))}%</b> komentar positif, <b>${fmt(pct(c.neutral, total))}%</b> netral, dan <b>${fmt(pct(c.negative, total))}%</b> negatif dari ${total} komentar.`);
+    out.push(`<b>${fmt(pct(c.positive, total))}%</b> komentar positif, <b>${fmt(pct(c.neutral, total))}%</b> netral, <b>${fmt(pct(c.mixed, total))}%</b> campuran (pujian sekaligus kritik), dan <b>${fmt(pct(c.negative, total))}%</b> negatif dari ${total} komentar.`);
 
     const praised = aspects.filter(a => a.c.positive).sort((a, b) => b.c.positive - a.c.positive).slice(0, 2);
     if (praised.length) out.push(`Paling sering dipuji: ${praised.map(a => `<span class="tag">${esc(a.label)} · ${a.c.positive}×</span>`).join(' dan ')}.`);
@@ -641,7 +726,7 @@
     }
 
     const ms = modelStats(base);
-    if (ms.ai) out.push(`Dinilai oleh <b>model AI IndoRoBERTa</b> + leksikon. <b>${ms.review}</b> komentar ditandai <span class="tag">Perlu ditinjau</span> karena keyakinan rendah atau sinyal yang bertentangan. Cek di tab Jelajah.`);
+    if (ms.ai) out.push(`Dinilai oleh <b>model AI IndoRoBERTa</b> + leksikon. <b>${ms.review}</b> komentar ditandai <span class="tag">Perlu ditinjau</span> karena keyakinan di bawah ${Math.round(pipelineCfg().reviewConfidence * 100)}%, berlabel Campuran, atau sinyalnya bertentangan. Cek di tab Jelajah.`);
     const sugg = base.filter(d => d.a.suggestion).length;
     if (sugg) out.push(`<b>${sugg}</b> komentar berisi saran eksplisit. Lihat daftar <i>Perlu perhatian</i> di samping.`);
 
@@ -672,16 +757,16 @@
   }
 
   function renderAttention(docs) {
-    const list = docs.filter(d => labelOf(d) === 'negative' || d.a.suggestion)
+    const list = docs.filter(d => labelOf(d) === 'negative' || labelOf(d) === 'mixed' || d.a.suggestion)
       .sort((a, b) => effScore(a) - effScore(b));
     $('#attnCount').textContent = list.length;
     $('#attention').innerHTML = list.length ? list.map(d => {
-      const neg = labelOf(d) === 'negative';
+      const l = labelOf(d), kind = l === 'negative' ? 'neg' : l === 'mixed' ? 'mix' : 'sug';
       return `<li><button data-open="${d.id}">
-        <span class="attn__icon attn__icon--${neg ? 'neg' : 'sug'}"><i data-lucide="${neg ? 'triangle-alert' : 'lightbulb'}"></i></span>
-        <span>${esc(truncate(d.text, 220))}<span class="attn__meta">${neg ? 'Negatif' : 'Saran'} · ${esc(truncate(d.dsName, 36))} · ${Q_LABEL[d.question] || ''}</span></span>
+        <span class="attn__icon attn__icon--${kind}"><i data-lucide="${kind === 'neg' ? 'triangle-alert' : kind === 'mix' ? 'split' : 'lightbulb'}"></i></span>
+        <span>${esc(truncate(d.text, 220))}<span class="attn__meta">${kind === 'neg' ? 'Negatif' : kind === 'mix' ? 'Campuran' : 'Saran'} · ${esc(truncate(d.dsName, 36))} · ${Q_LABEL[d.question] || ''}</span></span>
       </button></li>`;
-    }).join('') : '<li class="none">Tidak ada komentar negatif atau saran pada filter ini.</li>';
+    }).join('') : '<li class="none">Tidak ada komentar negatif, campuran, atau saran pada filter ini.</li>';
   }
 
   /** Gauge setengah lingkaran (SVG) untuk Net Sentiment Score −100…+100. */
@@ -691,7 +776,7 @@
     const arc = (a, b) => { const [x1, y1] = pt(a), [x2, y2] = pt(b); return `M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`; };
     const val = Math.max(-100, Math.min(100, v));
     const [nx, ny] = pt(val);
-    const n = c.positive + c.neutral + c.negative;
+    const n = c.positive + c.neutral + c.mixed + c.negative;
     const pp = pct(c.positive, n), pn = pct(c.negative, n);
     const band = nssBand(val);
     const bandIcon = val >= 20 ? 'trending-up' : val <= -20 ? 'trending-down' : 'minus';
@@ -710,13 +795,14 @@
         <text class="gauge__unit" x="${cx}" y="${cy + 18}" text-anchor="middle">${esc(band)}</text>
       </svg>
       <p class="gauge__formula"><span class="gf gf--pos">${fmt(pp)}% positif</span><span class="gf__op">−</span><span class="gf gf--neg">${fmt(pn)}% negatif</span></p>
-      <p class="gauge__note"><i data-lucide="${bandIcon}"></i>Netral tidak dihitung. Dari ${fmt(total)} komentar.</p>`;
+      <p class="gauge__mixed"><span class="dot dot--mix"></span><b>${fmt(c.mixed)}</b> campuran (${fmt(pct(c.mixed, n))}%) · <b>${fmt(c.neutral)}</b> netral</p>
+      <p class="gauge__note"><i data-lucide="${bandIcon}"></i>Campuran &amp; netral tidak menambah atau mengurangi NSS. Dari ${fmt(total)} komentar.</p>`;
   }
 
   /** Waffle: satu kotak per komentar + ringkasan per label. */
   function renderComposition(base, c) {
     const total = base.length;
-    const order = { positive: 0, neutral: 1, negative: 2 };
+    const order = { positive: 0, neutral: 1, mixed: 2, negative: 3 };
     const docs = base.slice().sort((a, b) => order[labelOf(a)] - order[labelOf(b)] || effScore(b) - effScore(a));
     const per = Math.max(1, Math.ceil(docs.length / 240));
     const cells = [];
@@ -728,7 +814,7 @@
     const cols = Math.max(6, Math.min(24, Math.ceil(Math.sqrt(cells.length * 2.2))));
     $('#waffle').style.gridTemplateColumns = `repeat(${cols}, minmax(0, 38px))`;
     $('#waffle').innerHTML = total ? cells.join('') + (per > 1 ? `<p class="waffle__note">1 kotak ≈ ${per} komentar</p>` : '') : '<p class="none" style="grid-column:1/-1">Tidak ada data</p>';
-    const segs = [['positive', 'pos'], ['neutral', 'neu'], ['negative', 'neg']];
+    const segs = [['positive', 'pos'], ['neutral', 'neu'], ['mixed', 'mix'], ['negative', 'neg']];
     $('#sentStrip').innerHTML = segs.map(([l, k]) => `
       <button class="sent-row ${S.filters.sentiments.has(l) ? '' : 'is-off'}" data-solo="${l}" aria-label="${SENT_LABEL[l]}: ${c[l]} komentar. Klik untuk memfilter.">
         <span class="dot dot--${k}"></span>
@@ -749,23 +835,24 @@
     if (!rows.length) { $('#classBars').innerHTML = '<p class="none">Tidak ada data.</p>'; return; }
     const lbl = (p, min) => (p >= min ? fmt(p) + '%' : '');
     $('#classBars').innerHTML = rows.map(r => {
-      const pp = pct(r.c.positive, r.n), pn = pct(r.c.neutral, r.n), pg = pct(r.c.negative, r.n);
-      const half = pn / 2;
-      // Skala: setengah lebar = 100%
-      const neuLeft = 50 - half / 2, negLeft = neuLeft - pg / 2;
+      const pp = pct(r.c.positive, r.n), pn = pct(r.c.neutral, r.n), pm = pct(r.c.mixed, r.n), pg = pct(r.c.negative, r.n);
+      const half = (pn + pm) / 2;
+      // Skala: setengah lebar = 100%. Campuran + netral berada di tengah garis.
+      const midLeft = 50 - half / 2, negLeft = midLeft - pg / 2, neuLeft = midLeft + pm / 2;
       const active = S.filters.classes.size === 1 && S.filters.classes.has(r.ds.id);
-      return `<button class="dbar ${active ? 'is-active' : ''}" data-class="${r.ds.id}" aria-label="${esc(r.ds.name)}: ${fmt(pp)}% positif, ${fmt(pn)}% netral, ${fmt(pg)}% negatif">
+      return `<button class="dbar ${active ? 'is-active' : ''}" data-class="${r.ds.id}" aria-label="${esc(r.ds.name)}: ${fmt(pp)}% positif, ${fmt(pn)}% netral, ${fmt(pm)}% campuran, ${fmt(pg)}% negatif">
         <span class="dbar__name"><span>${esc(r.ds.name)}</span><small>${r.n} komentar</small></span>
         <span class="dbar__track">
           ${pg ? `<span class="dbar__seg dbar__seg--neg" style="left:${negLeft}%;width:${pg / 2}%">${lbl(pg, 12)}</span>` : ''}
-          ${pn ? `<span class="dbar__seg dbar__seg--neu" style="left:${neuLeft}%;width:${half}%;${pg ? '' : 'border-radius:6px 0 0 6px;'}">${lbl(pn, 14)}</span>` : ''}
+          ${pm ? `<span class="dbar__seg dbar__seg--mix" style="left:${midLeft}%;width:${pm / 2}%;${pg ? '' : 'border-radius:6px 0 0 6px;'}">${lbl(pm, 14)}</span>` : ''}
+          ${pn ? `<span class="dbar__seg dbar__seg--neu" style="left:${neuLeft}%;width:${pn / 2}%;${pg || pm ? '' : 'border-radius:6px 0 0 6px;'}">${lbl(pn, 14)}</span>` : ''}
           ${pp ? `<span class="dbar__seg dbar__seg--pos" style="left:${50 + half / 2}%;width:${pp / 2}%">${lbl(pp, 10)}</span>` : ''}
         </span>
         <span class="dbar__idx">${signed(r.nss, 0)}<small>NSS</small></span>
       </button>`;
     }).join('') + `
       <div class="dbar-axis" aria-hidden="true"><span></span><div><span>100%</span><span>50%</span><span>0</span><span>50%</span><span>100%</span></div><span></span></div>
-      <div class="dbar-legend"><span><span class="dot dot--neg"></span>Negatif</span><span><span class="dot dot--neu"></span>Netral (dibagi dua di tengah)</span><span><span class="dot dot--pos"></span>Positif</span></div>`;
+      <div class="dbar-legend"><span><span class="dot dot--neg"></span>Negatif</span><span><span class="dot dot--mix"></span>Campuran</span><span><span class="dot dot--neu"></span>Netral (keduanya di tengah)</span><span><span class="dot dot--pos"></span>Positif</span></div>`;
   }
 
   function renderScatter(docs) {
@@ -777,7 +864,7 @@
           label: SENT_LABEL[l],
           data: docs.filter(d => labelOf(d) === l).map(d => ({ x: Math.max(1, d.a.words), y: effScore(d), id: d.id, text: d.text })),
           backgroundColor: color(sentColor(l), 0.85), borderColor: surface, borderWidth: 2,
-          pointRadius: 7, pointHoverRadius: 9, pointHitRadius: 10, pointStyle: ['circle', 'rectRounded', 'triangle'][SENTS.indexOf(l)]
+          pointRadius: 7, pointHoverRadius: 9, pointHitRadius: 10, pointStyle: ['circle', 'rectRounded', 'rectRot', 'triangle'][SENTS.indexOf(l)]
         }))
       },
       options: {
@@ -930,7 +1017,7 @@
       const c = countLabels(having);
       const n = having.length || 1;
       const w = pct(t.count, maxC);
-      const segs = SENTS.filter(l => c[l]).map(l => `<span style="width:${w * c[l] / n}%;background:var(--${l.slice(0, 3)})"></span>`).join('');
+      const segs = SENTS.filter(l => c[l]).map(l => `<span style="width:${w * c[l] / n}%;background:var(--${sentKey(l)})"></span>`).join('');
       return `<li><button data-term="${esc(t.term)}" class="${S.filters.term === t.term ? 'is-active' : ''}"
         aria-label="${esc(t.term)}: ${t.count} kali, ${c.positive} positif, ${c.neutral} netral, ${c.negative} negatif" title="${t.docs} komentar · ${c.positive} positif / ${c.neutral} netral / ${c.negative} negatif">
         <span class="termlist__rank">${i + 1}</span>
@@ -1521,10 +1608,10 @@
   function renderExplorer() {
     saveUI();
     let docs = filtered({ includeEmpty: S.explorer.showEmpty });
-    if (S.explorer.review) docs = docs.filter(d => hasAI(d) && d.m.review && !S.overrides[d.key]);
+    if (S.explorer.review) docs = docs.filter(needsReview);
     const sorters = {
       order: null,
-      'conf-asc': (a, b) => (hasAI(a) ? a.m.confidence : 2) - (hasAI(b) ? b.m.confidence : 2),
+      'conf-asc': (a, b) => (hasAI(a) ? a.m.keyakinan : 2) - (hasAI(b) ? b.m.keyakinan : 2),
       'score-desc': (a, b) => effScore(b) - effScore(a),
       'score-asc': (a, b) => effScore(a) - effScore(b),
       'len-desc': (a, b) => b.a.words - a.a.words,
@@ -1537,19 +1624,20 @@
     $('#feed').innerHTML = shown.length ? shown.map(d => {
       const l = labelOf(d);
       const sc = effScore(d);
-      const review = hasAI(d) && d.m.review && !S.overrides[d.key];
-      const icon = l === 'positive' ? 'thumbs-up' : l === 'negative' ? 'thumbs-down' : l === 'empty' ? 'circle-dashed' : 'minus';
+      const review = needsReview(d), r = res(d);
+      const icon = l === 'positive' ? 'thumbs-up' : l === 'negative' ? 'thumbs-down' : l === 'mixed' ? 'split' : l === 'empty' ? 'circle-dashed' : 'minus';
       return `<article class="fcard ${review ? 'is-review' : ''}" data-label="${l}" id="doc-${d.id}">
         <span class="fcard__ic" aria-hidden="true"><i data-lucide="${icon}"></i></span>
         <div class="fcard__body">
           <div class="fcard__top">
             <span class="fcard__src" title="${esc(d.dsName)}">${esc(truncate(d.dsName, 46))}</span>
             <span class="fcard__q"><i data-lucide="${d.question === 'saran' ? 'lightbulb' : 'message-circle'}"></i>${Q_LABEL[d.question] || 'Komentar'} #${d.n}</span>
-            ${review ? `<span class="fcard__flag" title="${esc(d.m.reason)}"><i data-lucide="eye"></i>Perlu ditinjau</span>` : ''}
+            ${review ? `<span class="fcard__flag" title="${esc(r.alasanTinjau)}"><i data-lucide="eye"></i>Perlu ditinjau</span>` : ''}
           </div>
           <p class="fcard__text">${highlight(d)}</p>
+          ${r && !S.overrides[d.key] ? `<p class="fcard__why"><i data-lucide="info"></i>${esc(r.alasan)}</p>` : ''}
           ${d.a.aspects.length || d.a.suggestion ? `<div class="fcard__meta">
-            ${d.a.aspects.map(a => `<span class="tagc">${esc(aspectById[a.id].label)}</span>`).join('')}
+            ${d.a.aspects.map(a => { const al = r?.aspek?.[a.id] || 'neutral'; return `<span class="tagc tagc--asp tagc--${sentKey(al)}" title="${esc(aspectById[a.id].label)}: ${SENT_LABEL[al].toLowerCase()}"><span class="dot dot--${sentKey(al)}"></span>${esc(aspectById[a.id].label)}</span>`; }).join('')}
             ${d.a.suggestion ? '<span class="tagc tagc--sug"><i data-lucide="lightbulb"></i>Berisi saran</span>' : ''}
           </div>` : ''}
         </div>
@@ -1573,9 +1661,9 @@
     if (S.overrides[d.key]) return `<div class="ev"><div class="ev__src ev__src--manual"><i data-lucide="user-check"></i>Dikoreksi manual</div>${kata}</div>`;
     if (!hasAI(d)) return `<div class="ev"><div class="ev__src"><i data-lucide="book-a"></i>Leksikon <b>${signed(sc)}</b></div>${kata}</div>`;
     const p = d.m.probs.map(v => Math.round(v * 100));
-    return `<div class="ev" title="Probabilitas: positif ${p[0]}%, netral ${p[1]}%, negatif ${p[2]}%${d.m.contrast ? ' · klausa kontras diperhitungkan' : ''}${d.m.tta ? ' · konteks komentar pendek diperhitungkan' : ''}">
+    return `<div class="ev" title="Probabilitas kalimat utuh: positif ${p[0]}%, netral ${p[1]}%, negatif ${p[2]}%${d.m.contrast ? ' · klausa kontras diperhitungkan' : ''}${d.m.sentimen === 'mixed' ? ' · Campuran: dinilai per klausa' : ''}">
       <div class="ev__bar" role="img" aria-label="Positif ${p[0]}%, netral ${p[1]}%, negatif ${p[2]}%"><span class="ev--pos" style="width:${p[0]}%"></span><span class="ev--neu" style="width:${p[1]}%"></span><span class="ev--neg" style="width:${p[2]}%"></span></div>
-      <div class="ev__src ev__src--ai"><i data-lucide="sparkles"></i>AI <b>${Math.round(d.m.confidence * 100)}%</b> yakin</div>${kata}</div>`;
+      <div class="ev__src ev__src--ai"><i data-lucide="sparkles"></i>AI <b>${Math.round(d.m.keyakinan * 100)}%</b> yakin</div>${kata}</div>`;
   }
 
   function openDoc(id) {
@@ -1608,8 +1696,8 @@
     const menu = $('#labelMenu');
     const cur = labelOf(d);
     menu.innerHTML = `<div class="menu__head"><span>Koreksi label</span></div>` +
-      SENTS.map(l => `<button role="menuitemradio" aria-checked="${cur === l}" data-set="${l}"><span class="dot dot--${l.slice(0, 3)}" style="margin-top:6px"></span><span>${SENT_LABEL[l]}</span></button>`).join('') +
-      (S.overrides[d.key] ? `<button role="menuitem" data-set="auto"><i data-lucide="rotate-ccw"></i><span><b>Kembalikan otomatis</b><small>Label otomatis: ${SENT_LABEL[autoLabel(d)]} (${hasAI(d) ? 'AI ' + Math.round(d.m.confidence * 100) + '% yakin' : 'leksikon ' + signed(d.a.score)})</small></span></button>` : '');
+      SENTS.map(l => `<button role="menuitemradio" aria-checked="${cur === l}" data-set="${l}"><span class="dot dot--${sentKey(l)}" style="margin-top:6px"></span><span>${SENT_LABEL[l]}</span></button>`).join('') +
+      (S.overrides[d.key] ? `<button role="menuitem" data-set="auto"><i data-lucide="rotate-ccw"></i><span><b>Kembalikan otomatis</b><small>Label otomatis: ${SENT_LABEL[autoLabel(d)]} (${hasAI(d) ? 'AI ' + Math.round(d.m.keyakinan * 100) + '% yakin' : 'leksikon ' + signed(d.a.score)})</small></span></button>` : '');
     menu.hidden = false;
     const r = btn.getBoundingClientRect();
     const mw = 240;
@@ -1735,8 +1823,8 @@
       const ds = S.datasets.find(x => x.id === d.datasetId) || {};
       const ai = hasAI(d);
       return [ds.name, ds.date, Q_LABEL[d.question], d.n, d.text, d.a.words, +autoScore(d).toFixed(3), SENT_LABEL[autoLabel(d)], SENT_LABEL[labelOf(d)], S.overrides[d.key] ? 'ya' : 'tidak',
-        ai ? 'model AI + leksikon' : 'leksikon', ai ? d.m.confidence.toFixed(3) : '', ai ? d.m.probs[0].toFixed(3) : '', ai ? d.m.probs[1].toFixed(3) : '', ai ? d.m.probs[2].toFixed(3) : '',
-        ai ? (d.m.review ? 'ya' : 'tidak') : '', SENT_LABEL[d.a.label],
+        ai ? 'model AI + leksikon' : 'leksikon', ai ? d.m.keyakinan.toFixed(3) : '', ai ? d.m.probs[0].toFixed(3) : '', ai ? d.m.probs[1].toFixed(3) : '', ai ? d.m.probs[2].toFixed(3) : '',
+        needsReview(d) ? 'ya' : 'tidak', SENT_LABEL[d.a.label],
         d.a.aspects.map(a => aspectById[a.id].label).join('; '), d.a.suggestion ? 'ya' : 'tidak', d.a.hits.map(h => `${h.term}(${h.v})`).join('; ')].map(q).join(',');
     }));
     download(`telaah-ai-analisis-${stamp()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
@@ -1969,6 +2057,20 @@
 
     // Model AI
     $('#modelBtn').addEventListener('click', () => { const dlg = $('#modelDialog'); renderModelDialog(); if (!dlg.open) dlg.showModal(); });
+    const setThreshold = v => {
+      S.reviewThreshold = v;
+      try { v == null ? localStorage.removeItem(RT_KEY) : localStorage.setItem(RT_KEY, String(v)); } catch (err) { /* abaikan */ }
+      reclassifyAll(); renderAll(); renderModelDialog();
+    };
+    $('#modelBody').addEventListener('input', e => { if (e.target.id === 'rtInput') $('#rtOut').textContent = e.target.value + '%'; });
+    $('#modelBody').addEventListener('change', e => { if (e.target.id === 'rtInput') setThreshold(+e.target.value); });
+    $('#modelBody').addEventListener('click', e => { if (e.target.closest('#rtReset')) setThreshold(null); });
+    $('#tab-ringkasan').addEventListener('click', e => {
+      const ed = e.target.closest('[data-edit-issue]');
+      if (ed) { editIssueName(ed.dataset.editIssue); return; }
+      const op = e.target.closest('[data-open-issue]');
+      if (op) { S.filters.issue = op.dataset.openIssue; S.explorer.limit = 30; setTab('jelajah'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    });
     $('#useModel').addEventListener('change', e => {
       S.useModel = e.target.checked;
       try { localStorage.setItem('telaah.useModel', S.useModel ? '1' : '0'); } catch (err) { /* abaikan */ }
@@ -2052,6 +2154,6 @@
     setTab(location.hash.slice(1) || S.tab || 'ringkasan', false);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (S.datasets.length) renderTab(); icons(); });
   }
-  T.Hybrid = { combine, modelProbs, ttaText, contrastTail, lexProbs, countWords, applyModel, get cache() { return mcache; }, get state() { return S; } };
+  T.Hybrid = { classifyDoc, reclassifyAll, rebuildDocs, renderAll, get engine() { return engineAI; }, get lexEngine() { return engineLex; }, pipelineCfg, get cache() { return mcache; }, get state() { return S; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })(window.T);
