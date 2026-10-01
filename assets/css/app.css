@@ -359,17 +359,21 @@ kbd { font: 600 11px/1 var(--font-sans); padding: 4px 7px; border-radius: 6px; b
 .sent-row__bar span { display: block; height: 100%; border-radius: 4px; }
 
 /* ---------- Insights ---------- */
-.insights { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; counter-reset: ins; }
-.insights li { counter-increment: ins; display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 14.5px; color: var(--ink-2); }
-.insights li:first-child { border-top: 0; padding-top: 0; }
-.insights li::before { content: counter(ins); width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--brand); background: var(--brand-soft); }
+/* Temuan otomatis & Perlu perhatian: tinggi sama, isi bergulir di dalam kartu */
+.card--pair { display: flex; flex-direction: column; height: 540px; }
+.card--pair > .card__head { flex-shrink: 0; }
+.card--pair .insights, .card--pair .attn { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; padding-right: 6px; margin-right: -6px;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); padding-bottom: 22px; }
+.insights { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; counter-reset: ins; }
+.insights li { counter-increment: ins; display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; padding: 11px 14px 11px 11px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.insights li::before { content: counter(ins); width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--brand); background: var(--surface); border: 1px solid var(--line); }
 .insights b { font-weight: 700; color: var(--ink); }
-.insights .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; padding: 1px 8px; border-radius: 6px; background: var(--surface-3); color: var(--ink); margin: 0 1px; }
-
-.attn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 440px; overflow: auto; }
+.insights .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 0 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); margin: 0 1px; }
+.attn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.attn li.none { margin: auto; text-align: center; color: var(--muted); font-size: 13.5px; padding: 40px 12px; }
 .attn li button {
   display: grid; grid-template-columns: 30px 1fr; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 12px;
-  border: 1px solid var(--line); background: var(--surface-2); font-size: 14px; color: var(--ink); transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+  border: 1px solid var(--line); background: var(--surface-2); font-size: 13.5px; line-height: 1.55; color: var(--ink); transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
 }
 .attn li button:hover { border-color: var(--brand); background: var(--surface); box-shadow: var(--shadow-sm); }
 .attn__icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; }
@@ -1135,3 +1139,4 @@ textarea { height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5;
 .issue__count svg { width: 14px; height: 14px; }
 .issue__count:hover { border-color: var(--brand); color: var(--brand); }
 @media (max-width: 640px) { .issue { grid-template-columns: 26px minmax(0, 1fr); } .issue__count { grid-column: 2; justify-self: start; } }
+@media (max-width: 900px) { .card--pair { height: auto; } .card--pair .insights, .card--pair .attn { max-height: 440px; } }
