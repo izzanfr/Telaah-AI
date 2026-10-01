@@ -18,7 +18,7 @@
   },
   "pipeline": {
     "lexWeight": 0.25,
-    "shortLexWeight": 0.5,
+    "shortLexWeight": 2.0,
     "shortMaxWords": 3,
     "contrastWeight": 0.4,
     "contrastPattern": "\\b(tapi|tetapi|namun|sayangnya|sayang|cuma|hanya saja|but|however)\\b",
@@ -26,7 +26,8 @@
     "reviewLexConflict": 0.5,
     "capsNormalize": true,
     "ttaTemplate": "Menurut saya pelatihannya {}",
-    "ttaMaxWords": 5
+    "ttaMaxWords": 5,
+    "ttaLowercase": true
   },
   "evaluatedOn": "2026-10-01",
   "benchmarks": [
@@ -55,7 +56,7 @@
     {
       "dataset": "Feedback pendek & informal (uji v2)",
       "n": 137,
-      "note": "Set uji baru (2026-10-01): komentar pendek, slang, bahasa Inggris, saran. Label ditetapkan sebelum evaluasi. Batas TTA 3 dan 5 kata seri di set dev; dipilih 5 kata karena mencakup contoh nyata 4 kata yang dilaporkan pengguna (batas 3 kata: 89,8%). Versi tanpa TTA: 87,6%.",
+      "note": "Set uji baru (2026-10-01): komentar pendek, slang, bahasa Inggris, saran. Label ditetapkan sebelum evaluasi. Batas TTA 3 dan 5 kata seri di set dev; dipilih 5 kata karena mencakup contoh nyata 4 kata yang dilaporkan pengguna (batas 3 kata: 89,8%). Versi tanpa TTA: 87,6%. v6 (2026-10-01): komentar ditulis huruf kecil di dalam kalimat konteks (data latih model seluruhnya huruf kecil; 'SERU' sebelumnya terbaca negatif), bobot leksikon komentar <=3 kata 2,0 (di subset ini leksikon 94% benar vs model 78% di set dev). Akurasi set uji tidak berubah.",
       "lexicon": {
         "acc": 85.4
       },

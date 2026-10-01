@@ -177,7 +177,7 @@
   }
 
   /** Test-time augmentation: komentar pendek juga dinilai di dalam kalimat konteks, lalu dirata-rata. */
-  const ttaText = (t, cfg) => (cfg.ttaTemplate && countWords(t) <= cfg.ttaMaxWords ? cfg.ttaTemplate.replace('{}', t) : null);
+  const ttaText = (t, cfg) => (cfg.ttaTemplate && countWords(t) <= cfg.ttaMaxWords ? cfg.ttaTemplate.replace('{}', t.toLowerCase()) : null);
   const textsFor = (t, cfg) => [t, ttaText(t, cfg)].filter(Boolean);
   function modelProbs(t, cfg) {
     const p = mcache.get(t); if (!p) return null;
@@ -210,7 +210,10 @@
     const pT = tail ? modelProbs(tail, cfg) : null;
     if (tail && !pT) { d.m = null; return; }
     const F = combine(pF, pT, d.a.score, countWords(d.text), cfg);
-    const i = argmax(F), label = ORDER[i], conf = F[i];
+    const i = argmax(F), conf = F[i];
+    // Jawaban pertanyaan "saran" tanpa kata bersentimen dan model ragu: itu usulan, bukan keluhan.
+    const sugNeutral = d.question === 'saran' && d.a.score === 0 && conf < cfg.reviewConfidence;
+    const label = sugNeutral ? 'neutral' : ORDER[i];
     const lexLabel = NLP.labelOf(d.a.score);
     const conflict = lexLabel !== label && Math.abs(d.a.score) >= cfg.reviewLexConflict;
     const aspects = {};
@@ -221,7 +224,7 @@
     d.m = {
       label, confidence: conf, probs: F, score: F[0] - F[2],
       review: conf < cfg.reviewConfidence || conflict,
-      reason: conf < cfg.reviewConfidence ? 'keyakinan rendah' : conflict ? 'model & leksikon tidak sepakat' : '',
+      reason: sugNeutral ? 'saran tanpa nada jelas, dianggap netral' : conf < cfg.reviewConfidence ? 'keyakinan rendah' : conflict ? 'model & leksikon tidak sepakat' : '',
       modelLabel: ORDER[argmax(pF)], contrast: !!pT, tta: !!ttaText(d.text, cfg), aspects
     };
   }
@@ -303,6 +306,7 @@
         <li><b>IndoRoBERTa</b> (${esc(M?.params || '124 juta parameter')}, dilatih pada ${esc(M?.trainedOn || 'SmSA')}) membaca seluruh komentar dan memberi probabilitas positif / netral / negatif.</li>
         <li>Bila ada kata kontras (<i>tapi, namun, sayangnya, cuma…</i>), klausa setelahnya dinilai ulang dan diberi bobot ${M ? Math.round(M.pipeline.contrastWeight * 100) : 40}%.</li>
         <li>Komentar sangat pendek (≤${M?.pipeline.ttaMaxWords || 3} kata, mis. “ok”, “sudah baik”) juga dibaca di dalam kalimat konteks <i>“Menurut saya pelatihannya …”</i>, lalu hasil keduanya dirata-rata (<i>test-time augmentation</i>), karena model dilatih pada ulasan panjang.</li>
+        <li>Jawaban pertanyaan <i>saran</i> yang tidak memuat kata bersentimen dan membuat model ragu dianggap <b>netral</b>: isinya usulan, bukan keluhan.</li>
         <li><b>Leksikon</b> Bahasa Indonesia ikut memberi suara (bobot ${M ? M.pipeline.lexWeight : 0.25}), lebih besar untuk komentar ≤${M ? M.pipeline.shortMaxWords : 3} kata seperti “ok”, “mantap”.</li>
         <li>Komentar dengan keyakinan &lt; ${M ? Math.round(M.pipeline.reviewConfidence * 100) : 70}% atau yang sinyal model & leksikonnya bertentangan ditandai <b>Perlu ditinjau</b>.</li>
         <li>Semua berjalan di browser Anda. Teks tidak dikirim ke mana pun.</li>
