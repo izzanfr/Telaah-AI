@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telaah AI · Analisis Feedback</title>
+  <meta name="description" content="Telaah AI: alat analisis sentimen dan feedback peserta: wordcloud, frasa, aspek, skor, dan penjelajah komentar.">
+  <meta name="theme-color" content="#0A2150">
+  <link rel="icon" type="image/png" href="assets/img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css?v=29">
+  <script>
+    (function () {
+      try { var t = localStorage.getItem('telaah.theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Lewati ke konten</a>
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar" id="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="#ringkasan" aria-label="Telaah AI, ke ringkasan">
+        <img class="brand__logo" src="assets/img/logo-mark.png" width="38" height="38" alt="">
+        <span class="brand__text">
+          <span class="brand__name">Telaah <em>AI</em></span>
+          <span class="brand__tag">Feedback Intelligence</span>
+        </span>
+      </a>
+
+      <nav class="tabs" aria-label="Bagian analisis">
+        <div class="tabs__inner" role="tablist">
+          <a role="tab" href="#ringkasan" data-tab="ringkasan"><i data-lucide="layout-dashboard"></i><span>Ringkasan</span></a>
+          <a role="tab" href="#kata" data-tab="kata"><i data-lucide="cloud"></i><span>Kata &amp; Frasa</span></a>
+          <a role="tab" href="#aspek" data-tab="aspek"><i data-lucide="layers"></i><span>Aspek</span></a>
+          <a role="tab" href="#skor" data-tab="skor"><i data-lucide="gauge"></i><span>Skor &amp; Rating</span></a>
+          <a role="tab" href="#jelajah" data-tab="jelajah"><i data-lucide="messages-square"></i><span>Jelajah</span><span class="tab-count" id="tabCount"></span></a>
+        </div>
+      </nav>
+
+      <div class="topbar__actions">
+        <button class="model-chip" id="modelBtn" data-tone="idle" aria-haspopup="dialog">
+          <span class="model-chip__dot"></span><span class="model-chip__text"><b>Model AI</b><small>…</small></span>
+        </button>
+        <div class="menu-wrap">
+          <button class="btn btn--ghost" id="exportBtn" aria-haspopup="menu" aria-expanded="false">
+            <i data-lucide="download"></i><span class="hide-sm">Ekspor</span>
+          </button>
+          <div class="menu" id="exportMenu" role="menu" hidden>
+            <button role="menuitem" data-export="csv"><i data-lucide="sheet"></i><span><b>CSV hasil analisis</b><small>Skor, label, aspek per komentar</small></span></button>
+            <button role="menuitem" data-export="cloud"><i data-lucide="image"></i><span><b>PNG wordcloud</b><small>Sesuai filter aktif</small></span></button>
+            <button role="menuitem" data-export="json"><i data-lucide="braces"></i><span><b>JSON lengkap</b><small>Data mentah + hasil</small></span></button>
+            <button role="menuitem" data-export="print"><i data-lucide="printer"></i><span><b>Cetak laporan</b><small>Semua tab dalam satu dokumen</small></span></button>
+          </div>
+        </div>
+        <button class="btn btn--icon btn--ghost" id="themeBtn" aria-label="Ganti tema terang/gelap" title="Ganti tema">
+          <i data-lucide="moon" class="icon-moon"></i><i data-lucide="sun" class="icon-sun"></i>
+        </button>
+        <button class="btn btn--primary" id="importBtn">
+          <i data-lucide="upload"></i><span>Impor data</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ FILTER BAR ============ -->
+  <section class="filterbar" id="filterbar" aria-label="Filter">
+    <div class="filterbar__inner">
+      <span class="filterbar__label"><i data-lucide="sliders-horizontal"></i><span>Filter</span></span>
+
+      <div class="menu-wrap">
+        <button class="select-btn" id="classBtn" aria-haspopup="true" aria-expanded="false">
+          <i data-lucide="graduation-cap"></i>
+          <span class="select-btn__label">Kelas</span>
+          <span class="select-btn__value" id="classValue">Semua</span>
+          <i data-lucide="chevron-down" class="chev"></i>
+        </button>
+        <div class="menu menu--wide" id="classMenu" hidden>
+          <div class="menu__head">
+            <span>Pilih kelas</span>
+            <button class="linkbtn" id="classAll">Pilih semua</button>
+          </div>
+          <div id="classList" class="checklist"></div>
+        </div>
+      </div>
+
+      <div class="segmented" role="radiogroup" aria-label="Jenis pertanyaan" id="questionSeg">
+        <button role="radio" data-q="all" aria-checked="true">Semua</button>
+        <button role="radio" data-q="pengalaman" aria-checked="false">Pengalaman</button>
+        <button role="radio" data-q="saran" aria-checked="false">Saran</button>
+      </div>
+
+      <div class="sent-toggles" role="group" aria-label="Sentimen" id="sentToggles">
+        <button class="stoggle" data-s="positive" aria-pressed="true"><span class="dot dot--pos"></span>Positif<span class="stoggle__n" data-n="positive">0</span></button>
+        <button class="stoggle" data-s="neutral" aria-pressed="true"><span class="dot dot--neu"></span>Netral<span class="stoggle__n" data-n="neutral">0</span></button>
+        <button class="stoggle" data-s="negative" aria-pressed="true"><span class="dot dot--neg"></span>Negatif<span class="stoggle__n" data-n="negative">0</span></button>
+      </div>
+
+      <div class="menu-wrap">
+        <button class="select-btn" id="aspectBtn" aria-haspopup="true" aria-expanded="false">
+          <i data-lucide="layers"></i>
+          <span class="select-btn__label">Aspek</span>
+          <span class="select-btn__value" id="aspectValue">Semua</span>
+          <i data-lucide="chevron-down" class="chev"></i>
+        </button>
+        <div class="menu" id="aspectMenu" role="menu" hidden></div>
+      </div>
+
+      <label class="search">
+        <i data-lucide="search"></i>
+        <span class="sr-only">Cari kata dalam feedback</span>
+        <input type="search" id="searchInput" placeholder="Cari kata dalam komentar…" autocomplete="off">
+        <kbd class="hide-sm">/</kbd>
+      </label>
+
+      <div class="active-chips" id="activeChips"></div>
+      <button class="btn btn--text" id="resetBtn" hidden><i data-lucide="rotate-ccw"></i>Reset</button>
+      <span class="filterbar__meta" id="datasetMeta" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <main id="main" class="main">
+    <!-- ============ EMPTY STATE ============ -->
+    <section class="empty" id="emptyState" hidden>
+      <div class="empty__card">
+        <img class="empty__logo" src="assets/img/logo-full.png" width="220" height="178" alt="Telaah AI">
+        <h1 class="empty__title">Pahami apa yang <span class="accent">sebenarnya</span> dikatakan peserta.</h1>
+        <p class="lede">Unggah laporan feedback PDF, file CSV/Excel, atau tempel komentar. Semua diproses di browser Anda, tidak ada data yang dikirim ke server.</p>
+        <div class="dropzone" id="emptyDrop" tabindex="0" role="button" aria-label="Pilih atau jatuhkan file">
+          <span class="dropzone__icon"><i data-lucide="file-up"></i></span>
+          <div>
+            <b>Jatuhkan file di sini</b> atau klik untuk memilih
+            <small>PDF laporan feedback · CSV · XLSX · bisa beberapa sekaligus</small>
+          </div>
+        </div>
+        <div class="empty__actions">
+          <button class="btn btn--primary" id="loadSampleBtn"><i data-lucide="flask-conical"></i>Muat data contoh</button>
+          <button class="btn btn--ghost" id="pasteOpenBtn"><i data-lucide="clipboard-paste"></i>Tempel teks</button>
+        </div>
+        <ul class="empty__feats">
+          <li><i data-lucide="smile"></i>Sentimen Bahasa Indonesia</li>
+          <li><i data-lucide="cloud"></i>Wordcloud &amp; frasa</li>
+          <li><i data-lucide="layers"></i>Analisis aspek</li>
+          <li><i data-lucide="shield-check"></i>100% lokal</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ RINGKASAN ============ -->
+    <section class="panel" id="tab-ringkasan" role="tabpanel" data-panel="ringkasan">
+      <div class="hero">
+        <div class="hero__text">
+          <p class="hero__eyebrow" id="heroEyebrow"></p>
+          <h1 class="hero__title" id="heroHeadline"></h1>
+          <p class="hero__lede" id="heroLede"></p>
+        </div>
+        <div class="hero__gauge" id="sentGauge"></div>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <div class="card">
+        <div class="card__head">
+          <div>
+            <h2>Komposisi sentimen</h2>
+            <p class="card__sub">Setiap kotak = satu komentar. Klik kotak untuk membukanya, klik label untuk memfilter.</p>
+          </div>
+        </div>
+        <div class="composition">
+          <div class="waffle" id="waffle" role="list" aria-label="Komentar menurut sentimen"></div>
+          <div class="composition__side">
+            <div class="strip" id="sentStrip"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Temuan otomatis</h2><p class="card__sub">Disusun dari pola kata, aspek, dan skor.</p></div><span class="card__icon"><i data-lucide="sparkles"></i></span></div>
+          <ol class="insights" id="insights"></ol>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Perlu perhatian</h2><p class="card__sub">Komentar negatif &amp; yang berisi saran.</p></div><span class="pill" id="attnCount"></span></div>
+          <ul class="attn" id="attention"></ul>
+        </div>
+      </div>
+
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Sentimen per kelas</h2><p class="card__sub">Negatif ke kiri, positif ke kanan dari garis tengah. Klik baris untuk memfilter.</p></div></div>
+          <div class="dbars" id="classBars"></div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Panjang vs. skor</h2><p class="card__sub">Setiap titik = satu komentar. Klik untuk membukanya.</p></div></div>
+          <div class="chart-box"><canvas id="scatterChart" aria-label="Sebaran panjang komentar terhadap skor sentimen" role="img"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><div><h2>Kutipan pilihan</h2><p class="card__sub">Komentar paling kaya dan paling bernada kuat.</p></div></div>
+        <div class="quotes" id="quotes"></div>
+      </div>
+    </section>
+
+    <!-- ============ KATA & FRASA ============ -->
+    <section class="panel" id="tab-kata" role="tabpanel" data-panel="kata" hidden>
+      <div class="card card--flush">
+        <div class="card__head card__head--pad">
+          <div><h2>Wordcloud</h2><p class="card__sub" id="cloudSub">Ukuran = frekuensi. Klik kata untuk memfilter.</p></div>
+          <div class="toolbar">
+            <div class="segmented segmented--sm" role="radiogroup" aria-label="Satuan" id="gramSeg">
+              <button role="radio" data-n="1" aria-checked="true">Kata</button>
+              <button role="radio" data-n="2" aria-checked="false">2 kata</button>
+              <button role="radio" data-n="3" aria-checked="false">3 kata</button>
+            </div>
+            <div class="segmented segmented--sm" role="radiogroup" aria-label="Warna" id="colorSeg">
+              <button role="radio" data-c="vivid" aria-checked="true">Warna-warni</button>
+              <button role="radio" data-c="sent" aria-checked="false">Sentimen</button>
+              <button role="radio" data-c="mono" aria-checked="false">Brand</button>
+            </div>
+            <label class="range">
+              <span>Maks</span>
+              <input type="range" id="maxWords" min="20" max="150" step="10" value="80" aria-label="Jumlah kata maksimum">
+              <output id="maxWordsOut">80</output>
+            </label>
+            <button class="btn btn--icon btn--ghost" id="cloudPng" aria-label="Unduh wordcloud sebagai PNG" title="Unduh PNG"><i data-lucide="image-down"></i></button>
+          </div>
+        </div>
+        <div class="cloud-wrap">
+          <svg id="cloud" role="group" aria-label="Wordcloud kata yang sering muncul" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="cloud-tip" id="cloudTip" hidden></div>
+          <div class="cloud-empty" id="cloudEmpty" hidden>Belum ada kata untuk ditampilkan dengan filter ini.</div>
+        </div>
+        <div class="legend-row" id="cloudLegend">
+          <span><span class="dot dot--pos"></span>Cenderung positif</span>
+          <span><span class="dot dot--neu"></span>Netral / campuran</span>
+          <span><span class="dot dot--neg"></span>Cenderung negatif</span>
+        </div>
+      </div>
+
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Istilah teratas</h2><p class="card__sub" id="topTermsSub">Frekuensi kemunculan.</p></div></div>
+          <ol class="termlist" id="termList"></ol>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Kata pembeda</h2><p class="card__sub">Kata yang paling khas di tiap nada, relatif terhadap sisanya.</p></div></div>
+          <div class="distinct" id="distinct"></div>
+        </div>
+      </div>
+
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Kedalaman komentar</h2><p class="card__sub">Distribusi jumlah kata per komentar.</p></div></div>
+          <div class="chart-box"><canvas id="lenChart" role="img" aria-label="Histogram panjang komentar"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Kata yang diabaikan</h2><p class="card__sub">Kata umum domain yang tidak ikut dihitung. Tambah atau hapus sesuai kebutuhan.</p></div></div>
+          <div class="stopwords">
+            <div class="chips" id="stopChips"></div>
+            <form class="inline-form" id="stopForm">
+              <label class="sr-only" for="stopInput">Tambah kata yang diabaikan</label>
+              <input id="stopInput" placeholder="mis. kantor, bapak" autocomplete="off">
+              <button class="btn btn--ghost" type="submit"><i data-lucide="plus"></i>Tambah</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ASPEK ============ -->
+    <section class="panel" id="tab-aspek" role="tabpanel" data-panel="aspek" hidden>
+      <div class="card">
+        <div class="card__head"><div><h2>Peta aspek</h2><p class="card__sub">Topik yang dibicarakan peserta dan nadanya, dihitung per kalimat. Klik baris untuk memfilter.</p></div></div>
+        <div class="table-wrap">
+          <table class="aspect-table" id="aspectTable">
+            <thead><tr><th scope="col">Aspek</th><th scope="col">Disebut</th><th scope="col">Komposisi nada</th><th scope="col" class="num">Skor bersih</th><th scope="col" class="hide-md">Contoh kalimat</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Matriks prioritas aspek</h2><p class="card__sub">Seberapa sering dibahas × seberapa positif. Ukuran gelembung = jumlah sebutan.</p></div></div>
+          <div class="chart-box chart-box--tall"><canvas id="aspectChart" role="img" aria-label="Matriks prioritas aspek"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Aspek × kelas</h2><p class="card__sub">Jumlah sebutan per kelas. Warna = skor bersih.</p></div></div>
+          <div class="table-wrap"><table class="heat" id="aspectHeat"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SKOR ============ -->
+    <section class="panel" id="tab-skor" role="tabpanel" data-panel="skor" hidden>
+      <div class="card">
+        <div class="card__head"><div><h2>Perbandingan kelas</h2><p class="card__sub">Rating kuantitatif dari laporan dibandingkan dengan sentimen teks.</p></div></div>
+        <div class="table-wrap"><table class="data-table" id="classTable"></table></div>
+      </div>
+      <div class="card">
+        <div class="card__head">
+          <div><h2>Leaderboard instruktur</h2><p class="card__sub" id="lbSub">Peringkat dari skor tertinggi. Klik baris untuk membandingkan di arena.</p></div>
+          <div class="segmented segmented--sm" role="radiogroup" aria-label="Urutkan leaderboard" id="lbSort"></div>
+        </div>
+        <div class="podium" id="podium"></div>
+        <ol class="lb" id="leaderboard"></ol>
+        <p class="lb__missing" id="lbMissing" hidden></p>
+      </div>
+      <div class="card">
+        <div class="card__head">
+          <div><h2>Kartu instruktur</h2><p class="card__sub" id="radarSub">Rating peserta (skala 1–5) dikonversi ke skala 0–99 ala kartu pemain. Nilai asli tetap ditampilkan di arena.</p></div>
+          <div class="tier-legend" aria-label="Tingkatan kartu">
+            <span class="tier-dot tier-dot--icon"></span>Ikon ≥95<span class="tier-dot tier-dot--gold"></span>Emas ≥85<span class="tier-dot tier-dot--silver"></span>Perak ≥70<span class="tier-dot tier-dot--bronze"></span>Perunggu
+          </div>
+        </div>
+        <div class="pcards-wrap"><div class="pcards" id="pcards"></div></div>
+        <div class="arena" id="arena">
+          <div class="h2h" id="h2h"></div>
+          <div class="arena__radar">
+            <p class="arena__title">Radar atribut</p>
+            <div class="arena__chart"><canvas id="radarChart" role="img" aria-label="Radar rating instruktur"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid--2">
+        <div class="card">
+          <div class="card__head"><div><h2>Rating layanan</h2><p class="card__sub">Skala 1–5, rata-rata tertimbang jumlah responden.</p></div></div>
+          <div class="bars" id="serviceBars"></div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><h2>Rating vs. nada teks</h2><p class="card__sub">Apakah angka rating selaras dengan apa yang ditulis peserta?</p></div></div>
+          <div class="align" id="alignment"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ JELAJAH ============ -->
+    <section class="panel" id="tab-jelajah" role="tabpanel" data-panel="jelajah" hidden>
+      <div class="explorer-head">
+        <p class="explorer-count" id="explorerCount"></p>
+        <div class="toolbar">
+          <label class="check check--review"><input type="checkbox" id="onlyReview"><span>Hanya yang perlu ditinjau</span><span class="pill" id="reviewCount">–</span></label>
+          <label class="check"><input type="checkbox" id="showEmpty"><span>Tampilkan jawaban kosong</span></label>
+          <label class="select">
+            <span class="sr-only">Urutkan</span>
+            <i data-lucide="arrow-down-up"></i>
+            <select id="sortSel">
+              <option value="order">Urutan asli</option>
+              <option value="score-desc">Paling positif</option>
+              <option value="score-asc">Paling negatif</option>
+              <option value="len-desc">Terpanjang</option>
+              <option value="len-asc">Terpendek</option>
+              <option value="conf-asc">Keyakinan AI terendah</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="feed" id="feed"></div>
+      <div class="feed-more"><button class="btn btn--ghost" id="moreBtn" hidden>Tampilkan lebih banyak</button></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="foot__brand"><img src="assets/img/logo-mark.png" width="18" height="18" alt="">Dibuat oleh <b>Izzan Faikar Ramadhy</b></span>
+  </footer>
+
+  <!-- ============ IMPORT DIALOG ============ -->
+  <dialog class="dialog" id="importDialog" aria-labelledby="importTitle">
+    <form method="dialog" class="dialog__head">
+      <div>
+        <h2 id="importTitle">Impor data feedback</h2>
+        <p class="card__sub">Data diproses lokal. Tambahkan beberapa kelas untuk dibandingkan.</p>
+      </div>
+      <button class="btn btn--icon btn--ghost" value="close" aria-label="Tutup"><i data-lucide="x"></i></button>
+    </form>
+
+    <div class="segmented segmented--full" role="tablist" id="importTabs">
+      <button role="tab" data-it="file" aria-selected="true"><i data-lucide="file-up"></i>File (PDF, CSV, Excel)</button>
+      <button role="tab" data-it="paste" aria-selected="false"><i data-lucide="clipboard-paste"></i>Tempel teks</button>
+    </div>
+
+    <div class="dialog__body" data-ipanel="file">
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Pilih atau jatuhkan file">
+        <span class="dropzone__icon"><i data-lucide="file-up"></i></span>
+        <div>
+          <b>Jatuhkan file di sini</b> atau klik untuk memilih
+          <small>Bisa beberapa file sekaligus · PDF laporan feedback · CSV · XLSX</small>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf,.csv,.tsv,.xlsx,.xls,.txt" multiple hidden>
+
+      <div class="mapper" id="mapper" hidden>
+        <p class="mapper__title"><i data-lucide="table-2"></i><span id="mapperFile"></span></p>
+        <div class="mapper__grid">
+          <label>Kolom teks feedback<select id="mapText"></select></label>
+          <label>Kolom kelas <small>(opsional)</small><select id="mapClass"></select></label>
+          <label>Kolom jenis pertanyaan <small>(opsional)</small><select id="mapQ"></select></label>
+          <label>Kolom rating <small>(opsional)</small><select id="mapRating"></select></label>
+        </div>
+        <div class="mapper__preview" id="mapPreview"></div>
+        <div class="dialog__actions">
+          <button class="btn btn--ghost" id="mapCancel" type="button">Batal</button>
+          <button class="btn btn--primary" id="mapApply" type="button"><i data-lucide="check"></i>Tambahkan</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dialog__body" data-ipanel="paste" hidden>
+      <div class="field-row">
+        <label>Nama kelas / sumber<input id="pasteName" placeholder="mis. Kelas Data Analyst Batch 3"></label>
+        <label>Jenis pertanyaan
+          <select id="pasteQ"><option value="pengalaman">Pengalaman</option><option value="saran">Saran</option></select>
+        </label>
+      </div>
+      <label class="block">Komentar (satu per baris)
+        <textarea id="pasteText" rows="8" placeholder="Materinya sangat membantu pekerjaan saya&#10;Ruangannya agak dingin&#10;Instruktur menjelaskan dengan jelas"></textarea>
+      </label>
+      <div class="dialog__actions">
+        <span class="hint" id="pasteHint">0 komentar</span>
+        <button class="btn btn--primary" id="pasteApply" type="button"><i data-lucide="plus"></i>Tambahkan</button>
+      </div>
+    </div>
+
+    <div class="sources">
+      <div class="sources__head">
+        <h3>Sumber dimuat</h3>
+        <div class="sources__actions">
+          <button class="btn btn--text" id="dlgSample" type="button"><i data-lucide="flask-conical"></i>Data contoh</button>
+          <button class="btn btn--text btn--danger" id="clearAll" type="button"><i data-lucide="trash-2"></i>Hapus semua</button>
+        </div>
+      </div>
+      <ul id="sourceList" class="source-list"></ul>
+    </div>
+  </dialog>
+
+  <!-- ============ MODEL DIALOG ============ -->
+  <dialog class="dialog dialog--wide" id="modelDialog" aria-labelledby="modelTitle">
+    <form method="dialog" class="dialog__head">
+      <div>
+        <h2 id="modelTitle">Keandalan analisis sentimen</h2>
+        <p class="card__sub">Bagaimana Telaah AI menilai komentar, dan seberapa akurat hasilnya pada data berlabel manusia.</p>
+      </div>
+      <button class="btn btn--icon btn--ghost" value="close" aria-label="Tutup"><i data-lucide="x"></i></button>
+    </form>
+    <div class="dialog__body">
+      <label class="switch">
+        <input type="checkbox" id="useModel" checked>
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span><b>Gunakan model AI</b><small>Matikan untuk membandingkan dengan leksikon saja.</small></span>
+      </label>
+      <div id="modelBody"></div>
+    </div>
+  </dialog>
+
+  <div class="toast-region" id="toasts" aria-live="polite" aria-atomic="false"></div>
+  <div class="menu menu--float" id="labelMenu" role="menu" hidden></div>
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-cloud/1.2.7/d3.layout.cloud.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script>
+    if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
+  <!-- App -->
+  <script src="assets/js/instructors.js?v=29"></script>
+  <script src="assets/js/lexicon.js?v=29"></script>
+  <script src="assets/js/nlp.js?v=29"></script>
+  <script src="assets/js/parsers.js?v=29"></script>
+  <script src="assets/js/sample-data.js?v=29"></script>
+  <script src="assets/js/app.js?v=29"></script>
+  <script type="module" src="assets/js/model.js?v=29"></script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+{
+  "id": "indonesian-sentiment",
+  "remote": "izzanfr/telaah-indonesian-sentiment-onnx",
+  "name": "IndoRoBERTa Sentiment",
+  "base": "w11wo/indonesian-roberta-base-sentiment-classifier",
+  "url": "https://huggingface.co/w11wo/indonesian-roberta-base-sentiment-classifier",
+  "author": "Wilson Wongso",
+  "license": "MIT",
+  "trainedOn": "SmSA (IndoNLU), 11.000 komentar & ulasan berbahasa Indonesia",
+  "params": "124 juta parameter",
+  "format": "ONNX int8 (dikuantisasi dinamis, per-channel)",
+  "dtype": "q8",
+  "sizeMB": 126,
+  "labels": {
+    "positive": "positive",
+    "neutral": "neutral",
+    "negative": "negative"
+  },
+  "pipeline": {
+    "lexWeight": 0.25,
+    "shortLexWeight": 2.0,
+    "shortMaxWords": 3,
+    "contrastWeight": 0.4,
+    "contrastPattern": "\\b(tapi|tetapi|namun|sayangnya|sayang|cuma|hanya saja|but|however)\\b",
+    "reviewConfidence": 0.7,
+    "reviewLexConflict": 0.5,
+    "capsNormalize": true
+  },
+  "evaluatedOn": "2026-09-29",
+  "benchmarks": [
+    {
+      "dataset": "SmSA test (IndoNLU)",
+      "n": 500,
+      "note": "Held-out resmi, label manusia. Parameter pipeline dipilih dari SmSA validation (1.260), bukan dari set ini.",
+      "lexicon": {
+        "acc": 75.4,
+        "f1": 72.1
+      },
+      "model": {
+        "acc": 93.2,
+        "f1": 91.2
+      },
+      "hybrid": {
+        "acc": 93.2,
+        "f1": 91.2
+      },
+      "review": {
+        "flaggedPct": 13.8,
+        "accUnflagged": 95.8,
+        "errorsCaught": "16/34"
+      }
+    },
+    {
+      "dataset": "Feedback pelatihan",
+      "n": 90,
+      "note": "30 komentar asli + 60 komentar sintetis (negasi, kontras, saran, slang, sarkasme). Label ditetapkan sebelum evaluasi. Leksikon disusun dari 30 komentar asli, jadi skornya di subset itu bias ke atas.",
+      "lexicon": {
+        "acc": 86.7,
+        "f1": 82.6,
+        "unseen": 80.0
+      },
+      "model": {
+        "acc": 83.3,
+        "f1": 81.7,
+        "unseen": 86.7
+      },
+      "hybrid": {
+        "acc": 87.8,
+        "f1": 84.9,
+        "unseen": 86.7
+      },
+      "review": {
+        "flaggedPct": 20.0,
+        "accUnflagged": 91.7,
+        "errorsCaught": "7/13"
+      }
+    }
+  ],
+  "comparedModels": [
+    {
+      "name": "w11wo/indonesian-roberta-base-sentiment-classifier",
+      "smsa": 93.2,
+      "feedback": 82.2,
+      "chosen": true
+    },
+    {
+      "name": "mdhugol/indonesia-bert-sentiment-classification",
+      "smsa": 91.8,
+      "feedback": 83.3
+    },
+    {
+      "name": "ayameRushia/bert-base-indonesian-1.5G-sentiment-analysis-smsa",
+      "smsa": 91.8,
+      "feedback": 78.9
+    },
+    {
+      "name": "taufiqdp/indonesian-sentiment",
+      "smsa": 90.0,
+      "feedback": 81.1
+    },
+    {
+      "name": "cardiffnlp/twitter-xlm-roberta-base-sentiment",
+      "smsa": 89.0,
+      "feedback": 84.4
+    },
+    {
+      "name": "ayameRushia/roberta-base-indonesian-1.5G-sentiment-analysis-smsa",
+      "smsa": 88.4,
+      "feedback": 75.6
+    },
+    {
+      "name": "Aardiiiiy/indobertweet-base-Indonesian-sentiment-analysis",
+      "smsa": 86.8,
+      "feedback": 70.0
+    },
+    {
+      "name": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+      "smsa": 78.2,
+      "feedback": 73.3
+    },
+    {
+      "name": "Leksikon Telaah (versi sebelumnya)",
+      "smsa": 75.4,
+      "feedback": 86.7
+    }
+  ],
+  "limitations": [
+    "Model dilatih pada ulasan umum, bukan khusus feedback pelatihan. Sekitar 1 dari 8 komentar feedback masih bisa salah label.",
+    "Sarkasme dan kalimat campuran (pujian + keluhan) adalah sumber kesalahan terbesar; komentar seperti ini cenderung ditandai 'Perlu ditinjau'.",
+    "Komentar sangat pendek dan informal (mis. 'ok', 'lumayan') lebih mengandalkan leksikon.",
+    "Model mengklasifikasi, bukan menghasilkan teks. Ia tidak dapat 'berhalusinasi' atau mengarang isi, tetapi tetap dapat keliru."
+  ],
+  "inference": "Satu komentar per inferensi, tanpa token spesial <s>/</s> (sesuai cara model dilatih), sehingga skor deterministik.",
+  "measurement": "Akurasi diukur langsung di browser (Transformers.js 3.7.5, WASM) dengan pipeline aplikasi. Macro-F1 dan kolom \"unseen\" dari referensi Python (onnxruntime) yang berbeda ≤1 kalimat."
+}

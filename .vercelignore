@@ -1,0 +1,16 @@
+# Telaah AI: berkas yang TIDAK ikut di-deploy ke Vercel.
+
+# Data asli (laporan feedback & komentar peserta), hanya untuk pemakaian lokal
+samples/
+evaluation/
+
+# Berkas model lokal (126 MB). Versi online memuat model dari Hugging Face Hub
+# (lihat "remote" di models/manifest.json). manifest.json tetap ikut di-deploy.
+models/indonesian-sentiment/
+
+# Alat pengembangan lokal
+.claude/
+serve.py
+start.bat
+__pycache__/
+*.pyc

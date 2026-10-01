@@ -1,0 +1,14 @@
+# Model 126 MB: melebihi batas 100 MB GitHub; di produksi dimuat dari Hugging Face Hub
+models/indonesian-sentiment/onnx/
+
+# Data asli (laporan & komentar peserta): jangan ikut ke repositori
+samples/
+evaluation/data/
+
+# Lain-lain
+.vercel/
+__pycache__/
+*.pyc
+
+# Konfigurasi lokal Claude
+.claude/
