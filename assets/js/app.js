@@ -1184,37 +1184,48 @@
     }));
     renderInstructors(inst, aspectsSet, dss);
 
-    // Keselarasan: satu baris ringkas per kelas
-    const tone = v => v == null ? '' : v >= 85 ? 'hi' : v >= 70 ? 'mid' : 'lo';
+    // Keselarasan: satu baris per kelas, titik-titik di satu skala 0-100 (makin rapat makin selaras)
+    const AL_KEYS = [['r', 'Rating'], ['k', 'Rekomendasi'], ['p', '% positif'], ['n', 'NSS']];
     const rowsA = dss.map(ds => {
       const r = ds.ratings || {};
       const docs = base.filter(d => d.datasetId === ds.id);
       const c = countLabels(docs);
       const rating = r.total ?? r.overall;
-      const vals = [rating == null ? null : pct(rating, 5), r.recommend ?? null, docs.length ? pct(c.positive, docs.length) : null, docs.length ? (nssOf(c) + 100) / 2 : null];
-      const ok = vals.filter(v => v != null);
-      const spread = ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0;
-      const st = ok.length < 2 ? ['na', 'circle-help', 'Data belum cukup untuk dibandingkan.']
-        : spread <= 15 ? ['ok', 'check', 'Selaras: angka rating dan isi komentar bercerita sama.']
-        : r.recommend != null && rating != null && r.recommend < pct(rating, 5) - 15 ? ['warn', 'alert-triangle', 'Rating tinggi, tapi niat merekomendasikan lebih rendah. Gali alasannya.']
-        : ['warn', 'alert-triangle', 'Ada selisih antara rating dan nada komentar. Baca komentar netral/negatif.'];
       const nss = docs.length ? nssOf(c) : null;
-      return { st, html: `<tr class="al--${st[0]}" title="${esc(st[2])}">
-        <td class="al__name"><span title="${esc(ds.name)}">${esc(ds.name)}</span></td>
-        <td><span class="al__v al__v--${tone(vals[0])}">${rating == null ? '–' : fmt(rating, 2)}</span></td>
-        <td><span class="al__v al__v--${tone(vals[1])}">${r.recommend == null ? '–' : fmt(r.recommend) + '%'}</span></td>
-        <td><span class="al__v al__v--${tone(vals[2])}">${vals[2] == null ? '–' : fmt(vals[2]) + '%'}</span></td>
-        <td><span class="al__v al__v--${nss == null ? '' : nss >= 60 ? 'hi' : nss >= 20 ? 'mid' : 'lo'}">${nss == null ? '–' : signed(nss, 0)}</span></td>
-        <td class="al__st"><i data-lucide="${st[1]}"></i><span class="sr-only">${esc(st[2])}</span></td>
-      </tr>` };
+      const pts = [
+        ['r', rating == null ? null : pct(rating, 5), rating == null ? '–' : fmt(rating, 2)],
+        ['k', r.recommend ?? null, r.recommend == null ? '–' : fmt(r.recommend) + '%'],
+        ['p', docs.length ? pct(c.positive, docs.length) : null, docs.length ? fmt(pct(c.positive, docs.length)) + '%' : '–'],
+        ['n', nss == null ? null : (nss + 100) / 2, nss == null ? '–' : signed(nss, 0)]
+      ];
+      const ok = pts.map(x => x[1]).filter(v => v != null);
+      const lo = ok.length ? Math.min(...ok) : 0, hi = ok.length ? Math.max(...ok) : 0, spread = Math.round(hi - lo);
+      const st = ok.length < 2 ? ['na', 'circle-help', 'Data belum cukup']
+        : spread <= 15 ? ['ok', 'check', 'Selaras']
+        : r.recommend != null && rating != null && r.recommend < pct(rating, 5) - 15 ? ['warn', 'alert-triangle', 'Rekomendasi tertinggal']
+        : ['warn', 'alert-triangle', 'Nada komentar berbeda'];
+      const tip = st[0] === 'ok' ? 'Angka rating dan isi komentar bercerita sama.' : st[0] === 'na' ? 'Data belum cukup untuk dibandingkan.'
+        : st[2] === 'Rekomendasi tertinggal' ? 'Rating tinggi, tapi niat merekomendasikan lebih rendah. Gali alasannya.' : 'Ada selisih antara rating dan nada komentar. Baca komentar netral/negatif.';
+      const d0 = Math.max(0, Math.min(50, Math.floor((lo - 8) / 10) * 10));
+      const cl = v => (Math.max(d0, Math.min(100, v)) - d0) / (100 - d0) * 100;
+      return { st, spread, html: `<li class="alr alr--${st[0]}" title="${esc(tip)}">
+        <span class="alr__ic"><i data-lucide="${st[1]}"></i></span>
+        <div class="alr__main">
+          <div class="alr__head"><b class="alr__name">${esc(ds.name)}</b><span class="alr__gap">${ok.length > 1 ? `selisih <b>${spread}</b>` : '–'}</span></div>
+          <div class="alr__stats">${pts.map(([k, , t]) => `<span class="alr__stat alr__stat--${k}"><i></i>${t}</span>`).join('')}</div>
+          <div class="alr__track" role="img" aria-label="${esc(st[2])}, selisih ${spread} poin">${ok.length > 1 ? `<span class="alr__band" style="left:${cl(lo)}%;width:${Math.max(cl(hi) - cl(lo), 1)}%"></span>` : ''}${pts.filter(x => x[1] != null).map(([k, v]) => `<span class="alr__dot alr__dot--${k}" style="left:${cl(v)}%"></span>`).join('')}<span class="alr__ax alr__ax--l">${d0}</span><span class="alr__ax alr__ax--r">100</span></div>
+        </div>
+      </li>` };
     });
     const nOk = rowsA.filter(x => x.st[0] === 'ok').length, nWarn = rowsA.filter(x => x.st[0] === 'warn').length;
+    rowsA.sort((x, y) => (y.st[0] === 'warn') - (x.st[0] === 'warn') || y.spread - x.spread);
     $('#alignment').innerHTML = `
-      <div class="al__sum"><span class="al__pill al__pill--ok"><i data-lucide="check"></i>${nOk} selaras</span><span class="al__pill al__pill--warn"><i data-lucide="alert-triangle"></i>${nWarn} perlu dicek</span><span class="al__hint">Arahkan kursor ke baris untuk penjelasan</span></div>
-      <div class="al__scroll"><table class="al">
-        <thead><tr><th>Kelas</th><th title="Rating total (1-5)">Rating</th><th title="Persentase peserta yang merekomendasikan">Rekom.</th><th title="Persentase komentar positif">% Pos</th><th title="Net Sentiment Score komentar">NSS</th><th><span class="sr-only">Status</span></th></tr></thead>
-        <tbody>${rowsA.sort((x, y) => (x.st[0] === 'warn' ? 0 : 1) - (y.st[0] === 'warn' ? 0 : 1)).map(x => x.html).join('')}</tbody>
-      </table></div>`;
+      <div class="al__top">
+        <div class="al__sum"><span class="al__pill al__pill--ok"><i data-lucide="check"></i>${nOk} selaras</span><span class="al__pill al__pill--warn"><i data-lucide="alert-triangle"></i>${nWarn} perlu dicek</span></div>
+        <div class="al__legend">${AL_KEYS.map(([k, l]) => `<span><i class="alr__dot alr__dot--${k}"></i>${l}</span>`).join('')}</div>
+      </div>
+      <ul class="al__list">${rowsA.map(x => x.html).join('')}</ul>
+      <p class="al__foot">Keempat ukuran disetarakan ke skala 0-100. Makin rapat titiknya, makin selaras rating dan isi komentar.</p>`;
   }
 
   /* ---------- Instruktur: leaderboard, kartu pemain, arena ---------- */
