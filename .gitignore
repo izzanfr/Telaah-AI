@@ -12,3 +12,6 @@ __pycache__/
 
 # Konfigurasi lokal Claude
 .claude/
+
+# Cache evaluasi (berisi teks uji)
+evaluation/scripts/_*.json

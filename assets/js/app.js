@@ -176,6 +176,16 @@
     return countWords(tail) >= 2 ? tail : null;
   }
 
+  /** Test-time augmentation: komentar pendek juga dinilai di dalam kalimat konteks, lalu dirata-rata. */
+  const ttaText = (t, cfg) => (cfg.ttaTemplate && countWords(t) <= cfg.ttaMaxWords ? cfg.ttaTemplate.replace('{}', t) : null);
+  const textsFor = (t, cfg) => [t, ttaText(t, cfg)].filter(Boolean);
+  function modelProbs(t, cfg) {
+    const p = mcache.get(t); if (!p) return null;
+    const ta = ttaText(t, cfg); if (!ta) return p;
+    const q = mcache.get(ta); if (!q) return null;
+    return p.map((v, i) => (v + q[i]) / 2);
+  }
+
   /** Gabungkan probabilitas model (+ klausa kontras) dengan leksikon. Mengembalikan [pos, neu, neg]. */
   function combine(pFull, pTail, lexScore, words, cfg) {
     let P = pFull.slice();
@@ -194,10 +204,10 @@
   function applyModel(d) {
     const cfg = S.modelCfg;
     if (!cfg || d.a.empty) { d.m = null; return; }
-    const pF = mcache.get(d.text);
+    const pF = modelProbs(d.text, cfg);
     if (!pF) { d.m = null; return; }
     const { tail, sents } = planDoc(d, cfg);
-    const pT = tail ? mcache.get(tail) : null;
+    const pT = tail ? modelProbs(tail, cfg) : null;
     if (tail && !pT) { d.m = null; return; }
     const F = combine(pF, pT, d.a.score, countWords(d.text), cfg);
     const i = argmax(F), label = ORDER[i], conf = F[i];
@@ -205,14 +215,14 @@
     const conflict = lexLabel !== label && Math.abs(d.a.score) >= cfg.reviewLexConflict;
     const aspects = {};
     d.a.aspects.forEach((a, k) => {
-      const st = sents[k], pa = st && mcache.get(st);
+      const st = sents[k], pa = st && modelProbs(st, cfg);
       if (pa) { const Fa = combine(pa, null, a.score, countWords(st), cfg); aspects[a.id] = Fa[0] - Fa[2]; }
     });
     d.m = {
       label, confidence: conf, probs: F, score: F[0] - F[2],
       review: conf < cfg.reviewConfidence || conflict,
       reason: conf < cfg.reviewConfidence ? 'keyakinan rendah' : conflict ? 'model & leksikon tidak sepakat' : '',
-      modelLabel: ORDER[argmax(pF)], contrast: !!pT, aspects
+      modelLabel: ORDER[argmax(pF)], contrast: !!pT, tta: !!ttaText(d.text, cfg), aspects
     };
   }
 
@@ -234,7 +244,7 @@
     S.docs.forEach(d => {
       if (d.a.empty) return;
       const { tail, sents } = planDoc(d, S.modelCfg);
-      [d.text, tail, ...sents].forEach(t => { if (t && !mcache.has(t)) need.add(t); });
+      [d.text, tail, ...sents].filter(Boolean).flatMap(t => textsFor(t, S.modelCfg)).forEach(t => { if (!mcache.has(t)) need.add(t); });
     });
     if (need.size) {
       const arr = [...need];
@@ -292,6 +302,7 @@
       <ol class="msteps">
         <li><b>IndoRoBERTa</b> (${esc(M?.params || '124 juta parameter')}, dilatih pada ${esc(M?.trainedOn || 'SmSA')}) membaca seluruh komentar dan memberi probabilitas positif / netral / negatif.</li>
         <li>Bila ada kata kontras (<i>tapi, namun, sayangnya, cuma…</i>), klausa setelahnya dinilai ulang dan diberi bobot ${M ? Math.round(M.pipeline.contrastWeight * 100) : 40}%.</li>
+        <li>Komentar sangat pendek (≤${M?.pipeline.ttaMaxWords || 3} kata, mis. “ok”, “sudah baik”) juga dibaca di dalam kalimat konteks <i>“Menurut saya pelatihannya …”</i>, lalu hasil keduanya dirata-rata (<i>test-time augmentation</i>), karena model dilatih pada ulasan panjang.</li>
         <li><b>Leksikon</b> Bahasa Indonesia ikut memberi suara (bobot ${M ? M.pipeline.lexWeight : 0.25}), lebih besar untuk komentar ≤${M ? M.pipeline.shortMaxWords : 3} kata seperti “ok”, “mantap”.</li>
         <li>Komentar dengan keyakinan &lt; ${M ? Math.round(M.pipeline.reviewConfidence * 100) : 70}% atau yang sinyal model & leksikonnya bertentangan ditandai <b>Perlu ditinjau</b>.</li>
         <li>Semua berjalan di browser Anda. Teks tidak dikirim ke mana pun.</li>
@@ -1522,24 +1533,25 @@
     $('#feed').innerHTML = shown.length ? shown.map(d => {
       const l = labelOf(d);
       const sc = effScore(d);
-      const left = sc >= 0 ? 50 : 50 + sc * 50, width = Math.abs(sc) * 50;
-      return `<article class="fcard" data-label="${l}" id="doc-${d.id}">
-        <span class="fcard__rail" aria-hidden="true"></span>
-        <div>
+      const review = hasAI(d) && d.m.review && !S.overrides[d.key];
+      const icon = l === 'positive' ? 'thumbs-up' : l === 'negative' ? 'thumbs-down' : l === 'empty' ? 'circle-dashed' : 'minus';
+      return `<article class="fcard ${review ? 'is-review' : ''}" data-label="${l}" id="doc-${d.id}">
+        <span class="fcard__ic" aria-hidden="true"><i data-lucide="${icon}"></i></span>
+        <div class="fcard__body">
+          <div class="fcard__top">
+            <span class="fcard__src" title="${esc(d.dsName)}">${esc(truncate(d.dsName, 46))}</span>
+            <span class="fcard__q"><i data-lucide="${d.question === 'saran' ? 'lightbulb' : 'message-circle'}"></i>${Q_LABEL[d.question] || 'Komentar'} #${d.n}</span>
+            ${review ? `<span class="fcard__flag" title="${esc(d.m.reason)}"><i data-lucide="eye"></i>Perlu ditinjau</span>` : ''}
+          </div>
           <p class="fcard__text">${highlight(d)}</p>
-          <div class="fcard__meta">
-            <span class="tagc"><i data-lucide="graduation-cap"></i>${esc(truncate(d.dsName, 40))}</span>
-            <span class="tagc"><i data-lucide="${d.question === 'saran' ? 'lightbulb' : 'message-circle'}"></i>${Q_LABEL[d.question] || 'Komentar'} #${d.n}</span>
+          ${d.a.aspects.length || d.a.suggestion ? `<div class="fcard__meta">
             ${d.a.aspects.map(a => `<span class="tagc">${esc(aspectById[a.id].label)}</span>`).join('')}
             ${d.a.suggestion ? '<span class="tagc tagc--sug"><i data-lucide="lightbulb"></i>Berisi saran</span>' : ''}
-            <span class="tagc tagc--mono">${d.a.words} kata</span>
-            ${hasAI(d) && d.m.review && !S.overrides[d.key] ? `<span class="tagc tagc--review" title="${esc(d.m.reason)}"><i data-lucide="eye"></i>Perlu ditinjau</span>` : ''}
-          </div>
+          </div>` : ''}
         </div>
         <div class="fcard__side">
           ${labelChip(d)}
-          ${d.a.empty ? '' : `<div style="display:flex;align-items:center;gap:8px"><span class="scorebar" role="img" aria-label="Skor ${signed(sc)}"><span style="left:${left}%;width:${width}%;background:${sentColor(l)}"></span></span><span class="score-num">${signed(sc)}</span></div>`}
-          ${d.a.empty ? '' : sourceBadge(d)}
+          ${d.a.empty ? '' : evidence(d, sc)}
         </div>
       </article>`;
     }).join('') : '<div class="none">Tidak ada komentar yang cocok. Coba longgarkan filter.</div>';
@@ -1551,13 +1563,15 @@
     $('#reviewCount').textContent = ms.ai ? ms.review : '–';
   }
 
-  function sourceBadge(d) {
-    if (S.overrides[d.key]) return '<span class="src-badge src-badge--manual" title="Label dikoreksi manual"><i data-lucide="user-check"></i>Manual</span>';
-    if (!hasAI(d)) return '<span class="src-badge" title="Dinilai dengan leksikon"><i data-lucide="book-a"></i>Leksikon</span>';
-    const pc = Math.round(d.m.confidence * 100);
-    const p = d.m.probs;
-    return `<span class="src-badge src-badge--ai" title="Probabilitas: positif ${Math.round(p[0] * 100)}%, netral ${Math.round(p[1] * 100)}%, negatif ${Math.round(p[2] * 100)}%${d.m.contrast ? ' · klausa kontras diperhitungkan' : ''}">
-      <i data-lucide="sparkles"></i>AI · ${pc}% yakin</span>`;
+  /** Bukti di balik label: bar probabilitas pos/netral/neg + sumber penilaian. */
+  function evidence(d, sc) {
+    const kata = `<span class="ev__words">${d.a.words} kata</span>`;
+    if (S.overrides[d.key]) return `<div class="ev"><div class="ev__src ev__src--manual"><i data-lucide="user-check"></i>Dikoreksi manual</div>${kata}</div>`;
+    if (!hasAI(d)) return `<div class="ev"><div class="ev__src"><i data-lucide="book-a"></i>Leksikon <b>${signed(sc)}</b></div>${kata}</div>`;
+    const p = d.m.probs.map(v => Math.round(v * 100));
+    return `<div class="ev" title="Probabilitas: positif ${p[0]}%, netral ${p[1]}%, negatif ${p[2]}%${d.m.contrast ? ' · klausa kontras diperhitungkan' : ''}${d.m.tta ? ' · konteks komentar pendek diperhitungkan' : ''}">
+      <div class="ev__bar" role="img" aria-label="Positif ${p[0]}%, netral ${p[1]}%, negatif ${p[2]}%"><span class="ev--pos" style="width:${p[0]}%"></span><span class="ev--neu" style="width:${p[1]}%"></span><span class="ev--neg" style="width:${p[2]}%"></span></div>
+      <div class="ev__src ev__src--ai"><i data-lucide="sparkles"></i>AI <b>${Math.round(d.m.confidence * 100)}%</b> yakin</div>${kata}</div>`;
   }
 
   function openDoc(id) {
@@ -2034,6 +2048,6 @@
     setTab(location.hash.slice(1) || S.tab || 'ringkasan', false);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (S.datasets.length) renderTab(); icons(); });
   }
-  T.Hybrid = { combine, contrastTail, lexProbs, countWords, applyModel, get cache() { return mcache; }, get state() { return S; } };
+  T.Hybrid = { combine, modelProbs, ttaText, contrastTail, lexProbs, countWords, applyModel, get cache() { return mcache; }, get state() { return S; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })(window.T);

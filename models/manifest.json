@@ -18,15 +18,17 @@
   },
   "pipeline": {
     "lexWeight": 0.25,
-    "shortLexWeight": 2.0,
+    "shortLexWeight": 0.5,
     "shortMaxWords": 3,
     "contrastWeight": 0.4,
     "contrastPattern": "\\b(tapi|tetapi|namun|sayangnya|sayang|cuma|hanya saja|but|however)\\b",
     "reviewConfidence": 0.7,
     "reviewLexConflict": 0.5,
-    "capsNormalize": true
+    "capsNormalize": true,
+    "ttaTemplate": "Menurut saya pelatihannya {}",
+    "ttaMaxWords": 5
   },
-  "evaluatedOn": "2026-09-29",
+  "evaluatedOn": "2026-10-01",
   "benchmarks": [
     {
       "dataset": "SmSA test (IndoNLU)",
@@ -51,6 +53,20 @@
       }
     },
     {
+      "dataset": "Feedback pendek & informal (uji v2)",
+      "n": 137,
+      "note": "Set uji baru (2026-10-01): komentar pendek, slang, bahasa Inggris, saran. Label ditetapkan sebelum evaluasi. Batas TTA 3 dan 5 kata seri di set dev; dipilih 5 kata karena mencakup contoh nyata 4 kata yang dilaporkan pengguna (batas 3 kata: 89,8%). Versi tanpa TTA: 87,6%.",
+      "lexicon": {
+        "acc": 85.4
+      },
+      "model": {
+        "acc": 81.8
+      },
+      "hybrid": {
+        "acc": 91.2
+      }
+    },
+    {
       "dataset": "Feedback pelatihan",
       "n": 90,
       "note": "30 komentar asli + 60 komentar sintetis (negasi, kontras, saran, slang, sarkasme). Label ditetapkan sebelum evaluasi. Leksikon disusun dari 30 komentar asli, jadi skornya di subset itu bias ke atas.",
@@ -65,7 +81,7 @@
         "unseen": 86.7
       },
       "hybrid": {
-        "acc": 87.8,
+        "acc": 88.9,
         "f1": 84.9,
         "unseen": 86.7
       },
@@ -125,6 +141,7 @@
     }
   ],
   "limitations": [
+    "Komentar 1-5 kata (\"ok\", \"sudah baik\") di luar pola data latih model. Komentar seperti ini juga dinilai di dalam kalimat konteks \"Menurut saya pelatihannya ...\" lalu hasilnya dirata-rata (test-time augmentation).",
     "Model dilatih pada ulasan umum, bukan khusus feedback pelatihan. Sekitar 1 dari 8 komentar feedback masih bisa salah label.",
     "Sarkasme dan kalimat campuran (pujian + keluhan) adalah sumber kesalahan terbesar; komentar seperti ini cenderung ditandai 'Perlu ditinjau'.",
     "Komentar sangat pendek dan informal (mis. 'ok', 'lumayan') lebih mengandalkan leksikon.",
