@@ -1959,16 +1959,6 @@
       toast(S.useModel ? 'Model AI diaktifkan' : 'Beralih ke mode leksikon');
     });
 
-    // Theme
-    $('#themeBtn').addEventListener('click', () => {
-      const cur = document.documentElement.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      const next = cur === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      try { localStorage.setItem('telaah.theme', next); } catch (e) { /* abaikan */ }
-      if (S.datasets.length) renderTab();
-      icons();
-    });
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S.datasets.length) renderTab(); });
 
     // Import
     $('#importBtn').addEventListener('click', () => openImport('file'));
