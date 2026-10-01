@@ -18,7 +18,7 @@ Then open http://localhost:5510.
 [`izzanfr/telaah-indonesian-sentiment-onnx`](https://huggingface.co/izzanfr/telaah-indonesian-sentiment-onnx) is an int8 ONNX version of [w11wo/indonesian-roberta-base-sentiment-classifier](https://huggingface.co/w11wo/indonesian-roberta-base-sentiment-classifier) (MIT). The browser loads it with Transformers.js.
 
 ## Deploy
-This is a static site, so it needs no build step. It deploys to Vercel from this repo. See [DEPLOY.md](DEPLOY.md).
+Live at https://telaah-ai.vercel.app. Every push to `main` deploys automatically through Vercel.
 
 ---
 Made by Izzan Faikar Ramadhy
