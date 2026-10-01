@@ -1184,30 +1184,37 @@
     }));
     renderInstructors(inst, aspectsSet, dss);
 
-    // Keselarasan
-    $('#alignment').innerHTML = dss.map(ds => {
+    // Keselarasan: satu baris ringkas per kelas
+    const tone = v => v == null ? '' : v >= 85 ? 'hi' : v >= 70 ? 'mid' : 'lo';
+    const rowsA = dss.map(ds => {
       const r = ds.ratings || {};
       const docs = base.filter(d => d.datasetId === ds.id);
       const c = countLabels(docs);
       const rating = r.total ?? r.overall;
-      const items = [
-        ['Rating', rating == null ? null : pct(rating, 5), rating == null ? '–' : fmt(rating, 2)],
-        ['Rekomendasi', r.recommend, r.recommend == null ? '–' : fmt(r.recommend) + '%'],
-        ['% positif teks', docs.length ? pct(c.positive, docs.length) : null, docs.length ? fmt(pct(c.positive, docs.length)) + '%' : '–'],
-        ['NSS teks', docs.length ? (nssOf(c) + 100) / 2 : null, docs.length ? signed(nssOf(c), 0) : '–']
-      ];
-      const vals = items.map(i => i[1]).filter(v => v != null);
-      const spread = vals.length > 1 ? Math.max(...vals) - Math.min(...vals) : 0;
-      const verdict = vals.length < 2 ? ['info', 'Data belum cukup untuk dibandingkan.']
-        : spread <= 15 ? ['check-circle-2', 'Selaras: angka rating dan isi komentar bercerita sama.']
-        : r.recommend != null && rating != null && r.recommend < pct(rating, 5) - 15 ? ['triangle-alert', 'Rating tinggi, tapi niat merekomendasikan lebih rendah. Gali alasannya.']
-        : ['triangle-alert', 'Ada selisih antara rating dan nada komentar. Baca komentar netral/negatif.'];
-      return `<div class="align__item">
-        <h3>${esc(ds.name)}</h3>
-        ${items.map(([lb, v, txt]) => `<div class="align__row"><span>${lb}</span><div class="bar-track"><div class="bar-fill" style="width:${v == null ? 0 : Math.max(0, Math.min(100, v))}%"></div></div><b>${txt}</b></div>`).join('')}
-        <p class="align__verdict align__verdict--${verdict[0] === 'check-circle-2' ? 'ok' : 'warn'}"><i data-lucide="${verdict[0]}"></i><span>${verdict[1]}</span></p>
-      </div>`;
-    }).join('');
+      const vals = [rating == null ? null : pct(rating, 5), r.recommend ?? null, docs.length ? pct(c.positive, docs.length) : null, docs.length ? (nssOf(c) + 100) / 2 : null];
+      const ok = vals.filter(v => v != null);
+      const spread = ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0;
+      const st = ok.length < 2 ? ['na', 'circle-help', 'Data belum cukup untuk dibandingkan.']
+        : spread <= 15 ? ['ok', 'check', 'Selaras: angka rating dan isi komentar bercerita sama.']
+        : r.recommend != null && rating != null && r.recommend < pct(rating, 5) - 15 ? ['warn', 'alert-triangle', 'Rating tinggi, tapi niat merekomendasikan lebih rendah. Gali alasannya.']
+        : ['warn', 'alert-triangle', 'Ada selisih antara rating dan nada komentar. Baca komentar netral/negatif.'];
+      const nss = docs.length ? nssOf(c) : null;
+      return { st, html: `<tr class="al--${st[0]}" title="${esc(st[2])}">
+        <td class="al__name"><span title="${esc(ds.name)}">${esc(ds.name)}</span></td>
+        <td><span class="al__v al__v--${tone(vals[0])}">${rating == null ? '–' : fmt(rating, 2)}</span></td>
+        <td><span class="al__v al__v--${tone(vals[1])}">${r.recommend == null ? '–' : fmt(r.recommend) + '%'}</span></td>
+        <td><span class="al__v al__v--${tone(vals[2])}">${vals[2] == null ? '–' : fmt(vals[2]) + '%'}</span></td>
+        <td><span class="al__v al__v--${nss == null ? '' : nss >= 60 ? 'hi' : nss >= 20 ? 'mid' : 'lo'}">${nss == null ? '–' : signed(nss, 0)}</span></td>
+        <td class="al__st"><i data-lucide="${st[1]}"></i><span class="sr-only">${esc(st[2])}</span></td>
+      </tr>` };
+    });
+    const nOk = rowsA.filter(x => x.st[0] === 'ok').length, nWarn = rowsA.filter(x => x.st[0] === 'warn').length;
+    $('#alignment').innerHTML = `
+      <div class="al__sum"><span class="al__pill al__pill--ok"><i data-lucide="check"></i>${nOk} selaras</span><span class="al__pill al__pill--warn"><i data-lucide="alert-triangle"></i>${nWarn} perlu dicek</span><span class="al__hint">Arahkan kursor ke baris untuk penjelasan</span></div>
+      <div class="al__scroll"><table class="al">
+        <thead><tr><th>Kelas</th><th title="Rating total (1-5)">Rating</th><th title="Persentase peserta yang merekomendasikan">Rekom.</th><th title="Persentase komentar positif">% Pos</th><th title="Net Sentiment Score komentar">NSS</th><th><span class="sr-only">Status</span></th></tr></thead>
+        <tbody>${rowsA.sort((x, y) => (x.st[0] === 'warn' ? 0 : 1) - (y.st[0] === 'warn' ? 0 : 1)).map(x => x.html).join('')}</tbody>
+      </table></div>`;
   }
 
   /* ---------- Instruktur: leaderboard, kartu pemain, arena ---------- */
