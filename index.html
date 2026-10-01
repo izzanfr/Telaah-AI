@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/app.css?v=29">
+  <link rel="stylesheet" href="assets/css/app.css?v=30">
   <script>
     (function () {
       try { var t = localStorage.getItem('telaah.theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -316,7 +316,12 @@
             <span class="tier-dot tier-dot--icon"></span>Ikon ≥95<span class="tier-dot tier-dot--gold"></span>Emas ≥85<span class="tier-dot tier-dot--silver"></span>Perak ≥70<span class="tier-dot tier-dot--bronze"></span>Perunggu
           </div>
         </div>
-        <div class="pcards-wrap"><div class="pcards" id="pcards"></div></div>
+        <div class="pcarousel" id="pcarousel">
+          <div class="pcards-wrap" id="pcardsWrap"><div class="pcards" id="pcards"></div></div>
+          <button class="pnav pnav--prev" id="pPrev" type="button" aria-label="Kartu sebelumnya"><i data-lucide="chevron-left"></i></button>
+          <button class="pnav pnav--next" id="pNext" type="button" aria-label="Kartu berikutnya"><i data-lucide="chevron-right"></i></button>
+          <div class="pprogress" aria-hidden="true"><span id="pBar"></span></div>
+        </div>
         <div class="arena" id="arena">
           <div class="h2h" id="h2h"></div>
           <div class="arena__radar">
@@ -469,12 +474,12 @@
   </script>
 
   <!-- App -->
-  <script src="assets/js/instructors.js?v=29"></script>
-  <script src="assets/js/lexicon.js?v=29"></script>
-  <script src="assets/js/nlp.js?v=29"></script>
-  <script src="assets/js/parsers.js?v=29"></script>
-  <script src="assets/js/sample-data.js?v=29"></script>
-  <script src="assets/js/app.js?v=29"></script>
-  <script type="module" src="assets/js/model.js?v=29"></script>
+  <script src="assets/js/instructors.js?v=30"></script>
+  <script src="assets/js/lexicon.js?v=30"></script>
+  <script src="assets/js/nlp.js?v=30"></script>
+  <script src="assets/js/parsers.js?v=30"></script>
+  <script src="assets/js/sample-data.js?v=30"></script>
+  <script src="assets/js/app.js?v=30"></script>
+  <script type="module" src="assets/js/model.js?v=30"></script>
 </body>
 </html>

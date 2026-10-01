@@ -763,7 +763,29 @@ textarea { height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5;
 .tier-dot--silver { background: linear-gradient(135deg, #F1F4F8, #9AA5B3); }
 .tier-dot--bronze { background: linear-gradient(135deg, #F0C8A5, #A9683E); }
 
-.pcards-wrap { overflow-x: auto; margin: 0 -24px; padding: 0 24px; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.pcarousel { position: relative; margin: 0 -24px; }
+.pcards-wrap { overflow-x: auto; padding: 0 24px; scroll-snap-type: x proximity; scrollbar-width: none; cursor: grab; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--fade-l, 0px), #000 calc(100% - var(--fade-r, 0px)), transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 var(--fade-l, 0px), #000 calc(100% - var(--fade-r, 0px)), transparent); }
+.pcards-wrap::-webkit-scrollbar { display: none; }
+.pcarousel.can-l .pcards-wrap { --fade-l: 56px; }
+.pcarousel.can-r .pcards-wrap { --fade-r: 56px; }
+.pcards-wrap.is-dragging { cursor: grabbing; scroll-snap-type: none; }
+.pcards-wrap.is-dragging .pcard { pointer-events: none; }
+.pcards-wrap img { -webkit-user-drag: none; user-select: none; }
+@media (hover: none) { .pcards-wrap { touch-action: auto; } }
+.pnav { position: absolute; top: calc(50% - 22px); transform: translateY(-50%); z-index: 3; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 8px 24px -8px rgba(10,33,80,.35); cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s, background .2s; }
+.pnav svg { width: 20px; height: 20px; }
+.pnav:hover { background: var(--navy, #0A2150); color: #fff; }
+.pnav:focus-visible { outline: 3px solid var(--accent, #1F4FA8); outline-offset: 2px; }
+.pnav--prev { left: 14px; } .pnav--next { right: 14px; }
+.pcarousel.can-l .pnav--prev, .pcarousel.can-r .pnav--next { opacity: 1; pointer-events: auto; }
+.pnav:active { transform: translateY(-50%) scale(.92); }
+.pprogress { height: 4px; margin: 0 auto 4px; width: min(220px, 50%); border-radius: 99px; background: var(--line); overflow: hidden; display: none; }
+.pprogress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1F4FA8, #2FCFC2); transition: transform .12s linear; }
+.pcarousel.is-scrollable .pprogress { display: block; }
 .pcards { display: flex; gap: 26px; width: max-content; margin: 0 auto; padding: 10px 8px 30px; }
 .pcards .pcard { scroll-snap-align: center; }
 .pcard {
@@ -1014,7 +1036,9 @@ textarea { height: auto; padding: 10px 12px; resize: vertical; line-height: 1.5;
   .podium__name { font-size: 12px; }
   .lb__row { grid-template-columns: 30px 40px minmax(0, 1fr) 54px; gap: 10px; padding: 8px 10px; }
   .lb__av { width: 40px; height: 40px; }
-  .pcards-wrap { margin: 0 -16px; padding: 0 16px; }
+  .pcarousel { margin: 0 -16px; }
+  .pcards-wrap { padding: 0 16px; }
+  .pnav { display: none; }
   .h2h__row { grid-template-columns: 44px 1fr 64px 1fr 44px; gap: 6px; }
   .h2h__label small { display: none; }
   .arena { padding: 18px 14px; }

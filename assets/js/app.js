@@ -1249,6 +1249,58 @@
     return out;
   }
 
+  // ---- Carousel kartu: geser dengan drag (mouse), swipe (sentuh), panah & keyboard ----
+  function updateCardNav() {
+    const w = $('#pcardsWrap'), c = $('#pcarousel'); if (!w || !c) return;
+    const max = w.scrollWidth - w.clientWidth;
+    c.classList.toggle('is-scrollable', max > 4);
+    c.classList.toggle('can-l', w.scrollLeft > 4);
+    c.classList.toggle('can-r', w.scrollLeft < max - 4);
+    const bar = $('#pBar');
+    if (bar && max > 4) { const vis = w.clientWidth / w.scrollWidth; bar.style.width = (vis * 100) + '%'; bar.style.transform = `translateX(${(w.scrollLeft / max) * (1 / vis - 1) * 100}%)`; }
+  }
+  function initCardDrag() {
+    const w = $('#pcardsWrap'); if (!w) return;
+    let down = false, moved = false, startX = 0, startL = 0, lastX = 0, lastT = 0, vel = 0, raf = 0;
+    const stopGlide = () => cancelAnimationFrame(raf);
+    const glide = () => {
+      vel *= 0.94; if (Math.abs(vel) < 0.3) { w.classList.remove('is-dragging'); return; }
+      w.scrollLeft -= vel; raf = requestAnimationFrame(glide);
+    };
+    w.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      stopGlide(); down = true; moved = false;
+      startX = lastX = e.clientX; startL = w.scrollLeft; lastT = performance.now(); vel = 0;
+    });
+    window.addEventListener('pointermove', e => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (!moved && Math.abs(dx) > 5) { moved = true; w.classList.add('is-dragging'); w.setPointerCapture?.(e.pointerId); }
+      if (!moved) return;
+      const now = performance.now();
+      vel = (e.clientX - lastX) / Math.max(now - lastT, 1) * 16; lastX = e.clientX; lastT = now;
+      w.scrollLeft = startL - dx;
+    });
+    const end = () => {
+      if (!down) return; down = false;
+      if (moved) raf = requestAnimationFrame(glide); else w.classList.remove('is-dragging');
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    // klik setelah drag jangan dianggap klik
+    w.addEventListener('click', e => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+    w.addEventListener('dragstart', e => e.preventDefault());
+    w.addEventListener('scroll', () => requestAnimationFrame(updateCardNav), { passive: true });
+    window.addEventListener('resize', updateCardNav);
+    const step = dir => { stopGlide(); const card = w.querySelector('.pcard'); const d = card ? card.offsetWidth + 26 : 300; w.scrollBy({ left: dir * d * Math.max(1, Math.floor(w.clientWidth / d) - 1 || 1), behavior: 'smooth' }); };
+    $('#pPrev').addEventListener('click', () => step(-1));
+    $('#pNext').addEventListener('click', () => step(1));
+    w.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+    });
+  }
+
   const avatar = (e, cls) => `<span class="${cls}">${e.photo ? `<img src="${esc(e.photo)}" alt="" loading="lazy" decoding="async" onerror="this.remove()">` : ''}<span class="av-initials">${esc(initials(e.displayName))}</span></span>`;
 
   function renderInstructors(inst, aspectsSet, dss) {
@@ -1333,6 +1385,8 @@
           </div>
         </div>
       </article>`).join('');
+
+    requestAnimationFrame(updateCardNav);
 
     // ---- Arena head-to-head ----
     const names = byOvr.map(e => e.name);
@@ -1859,6 +1913,7 @@
       const b = e.target.closest('[data-lb]'); if (!b) return;
       S.lbSort = b.dataset.lb; renderScores(); icons();
     });
+    initCardDrag();
     $('#tab-skor').addEventListener('click', e => {
       const b = e.target.closest('[data-pick]'); if (!b) return;
       const name = b.dataset.pick;
